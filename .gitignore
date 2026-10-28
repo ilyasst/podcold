@@ -9,3 +9,8 @@
 *.sw?
 .env
 
+# Local Linux toolchains, SDKs, intermediate files, and generated IPAs.
+.build-linux/
+dist/
+__pycache__/
+
