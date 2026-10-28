@@ -17,4 +17,8 @@ podcold_SWIFT_BRIDGING_HEADER = Sources/podcold-Bridging-Header.h
 podcold_LDFLAGS = -resource-dir /workspace/.build-linux/toolchain/linux/iphone/lib/clang/13.0.0 -L/workspace/.build-linux/sdks/iPhoneOS15.6.sdk/usr/lib/swift -L/workspace/podcold/ThirdParty/curl/lib -lcurl -lssl -lcrypto -lz -lc++ -rpath @executable_path/Frameworks -weak-lswiftCoreMIDI -weak-lswiftDataDetection -weak-lswiftFileProvider -weak-lswiftUniformTypeIdentifiers -weak-lswift_Concurrency
 podcold_RESOURCE_DIRS = Resources
 
+# Swift's class registration needs Apple's back-deployment shims on iOS 7.
+# Swift's Linux link driver does not add libarclite automatically like Xcode.
+podcold_LDFLAGS += -Wl,-force_load,/workspace/.build-linux/toolchain/linux/iphone/lib/arc/libarclite_iphoneos.a
+
 include $(THEOS_MAKE_PATH)/application.mk

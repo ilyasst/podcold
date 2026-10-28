@@ -6,7 +6,7 @@ Fork of [RousseAddict/podcold](https://github.com/RousseAddict/podcold), a podca
 
 The existing player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting test app targets iOS 7.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. Application sources under `podcold/` are compiled as provided.
 
-Build and packaging have been checked on Linux. **Launch, playback, downloads, and background operation still require testing on the physical iPod.** Custom RSS entry and tappable feedback links are subsequent app changes.
+Build, packaging, and USB installation have been checked on Linux. The first device launch on an iPod touch 4 running iOS 7.1.2 exposed a missing `libarclite` dependency; the recipe now links that compatibility library. **Launch with this fix, playback, downloads, and background operation still require testing on the physical iPod.** Custom RSS entry and tappable feedback links are subsequent app changes.
 
 Requirements: Docker, Bash, curl, Git, Python 3, tar with xz support, and sha256sum. Allow roughly 5 GB for the toolchain, SDK, Docker image, download cache, and intermediate files.
 
@@ -31,9 +31,10 @@ Install the IPA using your existing jailbroken-device installation method. It us
 - [Theos SDKs](https://github.com/theos/sdks): `0222fd5413cf4b9af096f37b4621afa2688572f7`, using iPhoneOS 15.6.
 - Ubuntu 20.04 container base pinned by image digest.
 - Existing ARMv7 curl/OpenSSL archives and the 18 Swift runtime libraries from `build/podcold_ios6.ipa`.
+- Apple's `libarclite_iphoneos.a` from the pinned toolchain, force-linked to supply legacy Objective-C class-registration support required by Swift on iOS 7. Xcode adds this automatically; the Linux link driver needs an explicit flag.
 
 The Swift resource directory must explicitly select Apple's libraries; otherwise the Linux compiler imports Linux CoreFoundation/Dispatch modules. Clang needs its Darwin compiler-runtime directory for the platform-version helper used by curl. Optional SDK Swift overlays are weak-linked. The packaged executable resolves the CoreMedia Swift overlay from the bundle, matching the upstream IPA.
 
-Icons are copied from their original PNG sources; the build does not require Apple's asset-catalog compiler. All runtime libraries are reduced to ARMv7 and re-signed. Packaging verifies ZIP integrity, bundle identity, Mach-O architecture and minimum OS for every binary, code-signature presence, required bundled dependencies, and required app symbols against the original Swift runtime export tables. These are static checks, not a substitute for a device launch or a cryptographic signature validation.
+Icons are copied from their original PNG sources; the build does not require Apple's asset-catalog compiler. All runtime libraries are reduced to ARMv7 and re-signed. Packaging verifies ZIP integrity, bundle identity, Mach-O architecture and minimum OS for every binary, code-signature presence, required bundled dependencies, the arclite class marker and weak registration import, and required app symbols against the original Swift runtime export tables. These are static checks, not a substitute for a device launch or a cryptographic signature validation.
 
 The upstream `atomic_stubs.S` currently emits a linker warning about the alignment of its `.Lno` label. The application sources are retained for this baseline build; the physical-device check remains necessary.

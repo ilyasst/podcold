@@ -75,7 +75,14 @@ def prepare():
         destination.parent.mkdir(parents=True, exist_ok=True)
         if not destination.is_symlink():
             destination.symlink_to(os.path.relpath(target, destination.parent))
-    shutil.copy2(ROOT / 'scripts/linux/Makefile', project / 'Makefile')
+    makefile = ROOT / 'scripts/linux/Makefile'
+    cached_makefile = project / 'Makefile'
+    if not cached_makefile.exists() or cached_makefile.read_bytes() != makefile.read_bytes():
+        # Theos does not detect changed linker flags in an incremental build.
+        # Remove only generated executables so new compatibility flags take effect.
+        for executable in (project / '.theos/obj').rglob('podcold.app/podcold'):
+            executable.unlink()
+    shutil.copy2(makefile, cached_makefile)
     for image in list(source.glob('*.png')) + list((source / 'Assets.xcassets/AppIcon.appiconset').glob('*.png')):
         shutil.copy2(image, resources / image.name)
     info = {
@@ -127,6 +134,12 @@ def verify(path):
                 if Path(library['name']).name not in parsed:
                     raise ValueError('Missing bundled dependency: ' + library['name'])
     app = parsed[info['CFBundleExecutable']]
+    # Release stripping removes arclite's private symbols; its Objective-C class
+    # name survives. Its registration import must be weak on pre-iOS-8 devices.
+    if (b'__ARCLite__\0' not in binaries[info['CFBundleExecutable']] or
+            not any(symbol == '_objc_readClassPair' and flags & 0x40
+                    for symbol, _, flags in app['symbols'])):
+        raise ValueError('Missing libarclite legacy Objective-C runtime compatibility')
     if '@executable_path/Frameworks' not in app['rpaths']:
         raise ValueError('Missing bundled runtime search path')
     for symbol, kind, flags in app['symbols']:
