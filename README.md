@@ -4,9 +4,9 @@ Fork of [RousseAddict/podcold](https://github.com/RousseAddict/podcold), a podca
 
 ## Linux ARMv7 build
 
-The existing player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting test app targets iOS 7.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. Application sources under `podcold/` are compiled as provided.
+The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting test app targets iOS 7.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. The fork's application sources under `podcold/` are compiled directly.
 
-Build, packaging, and USB installation have been checked on Linux. The first device launch on an iPod touch 4 running iOS 7.1.2 exposed a missing `libarclite` dependency; the recipe now links that compatibility library. **Launch with this fix, playback, downloads, and background operation still require testing on the physical iPod.** Custom RSS entry and tappable feedback links are subsequent app changes.
+Build, packaging, and USB installation have been checked on Linux. The first device launch on an iPod touch 4 running iOS 7.1.2 exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork also fixes a blank home screen on fresh installations by always performing the initial layout, even when all subscription and episode lists are empty. **The corrected home screen, playback, downloads, and background operation still require testing on the physical iPod.** Custom RSS entry and tappable feedback links are subsequent app changes.
 
 Requirements: Docker, Bash, curl, Git, Python 3, tar with xz support, and sha256sum. Allow roughly 5 GB for the toolchain, SDK, Docker image, download cache, and intermediate files.
 

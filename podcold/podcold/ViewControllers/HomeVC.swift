@@ -8,6 +8,8 @@ class HomeVC: UIViewController {
     private var builtPodcastUrls: [String] = []
     private var builtRecentState: [String] = []
     private var builtUpNextGuids: [String] = []
+    // A fresh installation has empty lists, but still needs its first render.
+    private var hasBuiltLayout = false
     private var inProgressGuids: Set<String> = []
     private var rebuildScheduled = false
     private var builtSyncing = false
@@ -57,7 +59,7 @@ class HomeVC: UIViewController {
         let newUrls   = podcasts.map { $0.feedUrl }
         let newState  = recentFingerprint()
         let newUpNext = upNext.map { $0.1.guid }
-        if newUrls != builtPodcastUrls || newState != builtRecentState || newUpNext != builtUpNextGuids {
+        if !hasBuiltLayout || newUrls != builtPodcastUrls || newState != builtRecentState || newUpNext != builtUpNextGuids {
             builtPodcastUrls  = newUrls
             builtRecentState  = newState
             builtUpNextGuids  = newUpNext
@@ -102,6 +104,7 @@ class HomeVC: UIViewController {
     }
 
     private func rebuildLayout() {
+        hasBuiltLayout = true
         scrollView.subviews.forEach { $0.removeFromSuperview() }
         newEpisodesHeader = nil
         syncTag           = nil
