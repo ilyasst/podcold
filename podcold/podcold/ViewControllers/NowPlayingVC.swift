@@ -104,6 +104,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         podcastLabel.textColor = UIColor(white: 0.55, alpha: 1)
         podcastLabel.font = UIFont.systemFont(ofSize: 13)
         podcastLabel.textAlignment = .center
+        podcastLabel.accessibilityIdentifier = "now-playing-author"
         headerView.addSubview(podcastLabel)
         y += 22
 
@@ -199,7 +200,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     private func refreshFromCurrentEpisode() {
         guard let ep = AudioPlayer.shared.currentEpisode else { return }
         titleLabel.text   = ep.title
-        podcastLabel.text = ep.podcastTitle
+        podcastLabel.text = ep.author.isEmpty ? ep.podcastTitle : ep.author
         if !ep.artworkUrl.isEmpty { artworkView.load(url: ep.artworkUrl) }
         renderTime()
         renderState()

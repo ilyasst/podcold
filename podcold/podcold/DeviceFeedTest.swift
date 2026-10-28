@@ -118,12 +118,16 @@ enum DeviceFeedTest {
         func parse(_ xml: String) -> FeedParser.PodcastFeed? {
             return try? FeedParser.parsePodcast(data: Data(xml.utf8), feedUrl: base).get()
         }
-        let rss = parse("<rss xmlns:itunes='http://www.itunes.com/dtds/podcast-1.0.dtd'><channel><title>Fixture &amp; Test</title><itunes:author>Author</itunes:author><itunes:image href='/cover.png'/><item><title>Episode One</title><guid>fixture-one</guid><enclosure url='/audio.mp3' type='audio/mpeg'/></item></channel></rss>")
-        let atom = parse("<feed xmlns='http://www.w3.org/2005/Atom'><title>Atom Show</title><author><name>Atom Author</name></author><entry><id>atom-one</id><title>Atom Episode</title><link rel='enclosure' type='audio/mpeg' href='episode.mp3'/></entry></feed>")
+        let rss = parse("<rss xmlns:itunes='http://www.itunes.com/dtds/podcast-1.0.dtd' xmlns:dc='http://purl.org/dc/elements/1.1/'><channel><title>Fixture &amp; Test</title><itunes:author>Author</itunes:author><itunes:image href='/cover.png'/><item><title>Episode One</title><guid>fixture-one</guid><itunes:author>Episode Creator</itunes:author><dc:creator>Fallback Author</dc:creator><enclosure url='/audio.mp3' type='audio/mpeg'/></item></channel></rss>")
+        let atom = parse("<feed xmlns='http://www.w3.org/2005/Atom'><title>Atom Show</title><author><name>Atom Author</name></author><entry><id>atom-one</id><title>Atom Episode</title><author><name>Atom Episode Creator</name></author><link rel='enclosure' type='audio/mpeg' href='episode.mp3'/></entry></feed>")
         let item = "<item><title>Episode</title><enclosure url='https://example.invalid/audio.mp3'/></item>"
         let paged = parse("<rss><channel><title>Many Episodes</title>" + String(repeating: item, count: 21) + "</channel></rss>")
         return [
             "rss_metadata": rss?.podcast.title == "Fixture & Test" && rss?.podcast.author == "Author",
+            "episode_author": rss?.episodes.first?.author == "Episode Creator",
+            "atom_episode_author": atom?.episodes.first?.author == "Atom Episode Creator",
+            "author_persistence": rss.map { Episode.from(dict: $0.episodes[0].toDict()).author == "Episode Creator" } ?? false,
+            "legacy_episode_compatible": Episode.from(dict: ["guid":"legacy", "title":"Old cached episode"]).author.isEmpty,
             "rss_episodes": rss?.episodes.first?.title == "Episode One" && rss?.episodes.first?.podcastTitle == "Fixture & Test",
             "relative_urls": rss?.podcast.artworkUrl == "https://example.invalid/cover.png" && rss?.episodes.first?.audioUrl == "https://example.invalid/audio.mp3",
             "atom": atom?.podcast.author == "Atom Author" && atom?.episodes.first?.audioUrl == "https://example.invalid/episode.mp3",

@@ -48,6 +48,18 @@ class EpisodeDetailVC: UIViewController, UITextViewDelegate {
         scrollView.addSubview(titleLabel)
         y += 54
 
+        if !episode.author.isEmpty {
+            let authorLabel = UILabel(frame: CGRect(x: 20, y: y, width: w - 40, height: 20))
+            authorLabel.accessibilityIdentifier = "episode-author"
+            authorLabel.text = "By " + episode.author
+            authorLabel.textColor = UIColor(white: 0.75, alpha: 1)
+            authorLabel.backgroundColor = .clear
+            authorLabel.font = UIFont.systemFont(ofSize: 13)
+            authorLabel.adjustsFontSizeToFitWidth = true
+            scrollView.addSubview(authorLabel)
+            y += 26
+        }
+
         // The podcast name, not the publisher. Tappable when we know the feed —
         // episodes reached from Home/Downloads can carry a stub Podcast whose
         // feedUrl is empty, and there is no list to open for those.

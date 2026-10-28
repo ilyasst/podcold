@@ -242,7 +242,14 @@ class FeedParser: NSObject, XMLParserDelegate {
 
         guard inItem else { return }
 
+        if elementPath.suffix(3).elementsEqual(["entry", "author", "name"]) {
+            currentEpisode?.author = text
+        }
         switch elementName {
+        case "itunes:author":
+            if !text.isEmpty { currentEpisode?.author = text }
+        case "dc:creator", "author":
+            if currentEpisode?.author.isEmpty == true && !text.isEmpty { currentEpisode?.author = text }
         case "title":
             currentEpisode?.title = text
         case "guid", "id":

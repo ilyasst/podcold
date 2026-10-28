@@ -450,7 +450,7 @@ class AudioPlayer: NSObject {
     private func updateNowPlaying(episode: Episode) {
         let info: [String: Any] = [
             MPMediaItemPropertyTitle: episode.title,
-            MPMediaItemPropertyArtist: episode.podcastTitle,
+            MPMediaItemPropertyArtist: episode.author.isEmpty ? episode.podcastTitle : episode.author,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: (state == .playing) ? Double(playbackRate) : 0.0
         ]

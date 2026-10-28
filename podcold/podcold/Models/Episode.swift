@@ -3,6 +3,7 @@ import Foundation
 class Episode: NSObject {
     var guid: String = ""
     var title: String = ""
+    var author: String = ""
     var audioUrl: String = ""
     var pubDate: String = ""
     var duration: String = ""
@@ -181,7 +182,7 @@ class Episode: NSObject {
     }
 
     func toDict() -> [String: Any] {
-        return ["guid": guid, "title": title, "audioUrl": audioUrl,
+        return ["guid": guid, "title": title, "author": author, "audioUrl": audioUrl,
                 "pubDate": pubDate, "duration": duration, "summary": summary,
                 "artworkUrl": artworkUrl, "podcastTitle": podcastTitle]
     }
@@ -190,6 +191,7 @@ class Episode: NSObject {
         let e = Episode()
         e.guid         = dict["guid"]         as? String ?? ""
         e.title        = dict["title"]        as? String ?? ""
+        e.author       = dict["author"]       as? String ?? ""
         e.audioUrl     = dict["audioUrl"]     as? String ?? ""
         e.pubDate      = dict["pubDate"]      as? String ?? ""
         e.duration     = dict["duration"]     as? String ?? ""

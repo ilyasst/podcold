@@ -1,5 +1,6 @@
 #if PODCOLD_DEVICE_TESTING
 import UIKit
+import MediaPlayer
 
 // Opt-in physical-device checks. Only GET opens in Safari; no feedback is submitted.
 // A temporary episode identity isolates downloads, recents, positions and played state.
@@ -86,6 +87,8 @@ enum DeviceNotesTest {
         checks["native_links"] = !notes.isEditable && notes.isSelectable && !notes.isScrollEnabled &&
             links.contains(where: { $0.0 == "Listened" }) && notes.delegate === screen
         checks["feedback_link_count"] = links.count
+        let byline = views(screen.view).first(where: { $0.accessibilityIdentifier == "episode-author" }) as? UILabel
+        checks["original_author_byline"] = !(episode?.author.isEmpty ?? true) && byline?.text == "By " + (episode?.author ?? "")
         notes.superview.map { parent in
             if let scroll = parent as? UIScrollView { scroll.scrollRectToVisible(notes.frame, animated: false) }
         }
@@ -128,6 +131,9 @@ enum DeviceNotesTest {
         let player = AudioPlayer.shared
         if player.state == .playing && player.currentTime > 3 {
             checks["local_playback"] = player.currentEpisode?.guid == episode?.guid && player.duration > 20
+            let nowAuthor = navigation.map { views($0.view).first(where: { $0.accessibilityIdentifier == "now-playing-author" }) as? UILabel } ?? nil
+            checks["now_playing_author"] = nowAuthor?.text == episode?.author
+            checks["lock_screen_author"] = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] as? String == episode?.author
             emit("playback_started")
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { openFeedback() }
             return
@@ -187,7 +193,7 @@ enum DeviceNotesTest {
             let restored = restoreInterruptedTest()
             PlayQueue.shared.reload()
             checks["test_data_restored"] = restored && UserDefaults.standard.object(forKey: recoveryKey) == nil && episode?.localPath() == nil
-            let required = ["notes_validation", "native_links", "download_progress_ui", "download_saved", "local_playback", "safari_background", "background_playback", "test_data_restored"]
+            let required = ["notes_validation", "native_links", "original_author_byline", "now_playing_author", "lock_screen_author", "download_progress_ui", "download_saved", "local_playback", "safari_background", "background_playback", "test_data_restored"]
             checks["passed"] = error == nil && required.allSatisfy { checks[$0] as? Bool == true }
             if let message = error { checks["error"] = message }
             emit("complete")
