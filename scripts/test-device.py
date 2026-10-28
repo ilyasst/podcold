@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the real UIKit search flow on a paired, unlocked iOS 7 device."""
+"""Exercise real UIKit search and URL subscriptions on a paired iOS 7 device."""
 import argparse
 import json
 import os
@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--udid', help='Defaults to the only USB-connected device')
     parser.add_argument('--install', action='store_true', help='Install the locally built test IPA first')
+    parser.add_argument('--feed-url', help='Test adding this real podcast feed instead of directory search; original subscriptions are restored')
     args = parser.parse_args()
     devices = subprocess.check_output(['idevice_id', '-l'], text=True).splitlines()
     if not args.udid and len(devices) != 1:
@@ -25,7 +26,8 @@ def main():
     udid = args.udid or devices[0]
     output = ROOT / '.build-linux/device-test'
     output.mkdir(parents=True, exist_ok=True)
-    (output / 'results.json').unlink(missing_ok=True)
+    results_file = output / ('feed-results.json' if args.feed_url else 'results.json')
+    results_file.unlink(missing_ok=True)
 
     def command(arguments, timeout=30, check=True):
         process = subprocess.run(arguments, capture_output=True, text=True, timeout=timeout)
@@ -56,9 +58,10 @@ def main():
     reports, pending = [], b''
     try:
         # -- prevents GNU getopt from interpreting the app's own arguments.
-        command(['idevicedebug', '-u', udid, '--detach', '--', 'run', BUNDLE,
-                 '--podcold-device-test', '--podcold-test-token=' + token])
-        deadline = time.monotonic() + 65
+        launch_args = ['--podcold-feed-test', '--podcold-feed-url=' + args.feed_url] if args.feed_url else ['--podcold-device-test']
+        command(['idevicedebug', '-u', udid, '--detach', '--', 'run', BUNDLE] +
+                launch_args + ['--podcold-test-token=' + token])
+        deadline = time.monotonic() + (120 if args.feed_url else 65)
         while time.monotonic() < deadline:
             if not select.select([log.stdout], [], [], 1)[0]:
                 continue
@@ -79,12 +82,17 @@ def main():
                 if report.get('run_token') != token:
                     continue
                 reports.append(report)
-                (output / 'results.json').write_text(json.dumps(reports, indent=2) + '\n')
+                results_file.write_text(json.dumps(reports, indent=2) + '\n')
                 print(json.dumps(report), flush=True)
                 if report['stage'] == 'search_field':
                     screenshot('search-keyboard')
+                if report['stage'] == 'feed_entry':
+                    screenshot('feed-url')
                 if report['stage'] == 'complete':
-                    screenshot('search-results')
+                    screenshot('feed-added' if args.feed_url else 'search-results')
+                    if args.feed_url:
+                        command(['idevicedebug', '-u', udid, 'kill', BUNDLE], check=False)
+                        command(['idevicedebug', '-u', udid, '--detach', 'run', BUNDLE])
                     return 0 if report.get('passed') else 1
         raise RuntimeError('No current test result: confirm the developer image is mounted and the app was built with PODCOLD_DEVICE_TESTING=1.')
     finally:

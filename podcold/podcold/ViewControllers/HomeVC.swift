@@ -167,7 +167,7 @@ class HomeVC: UIViewController {
         if podcasts.isEmpty {
             let empty = emptyState(y: y, w: w)
             scrollView.addSubview(empty)
-            y += 150
+            y += 210
         } else {
             let cols:  CGFloat = 3
             let gap:   CGFloat = 10
@@ -411,7 +411,7 @@ class HomeVC: UIViewController {
     }
 
     private func emptyState(y: CGFloat, w: CGFloat) -> UIView {
-        let v = UIView(frame: CGRect(x: 0, y: y, width: w, height: 140))
+        let v = UIView(frame: CGRect(x: 0, y: y, width: w, height: 200))
 
         let title = UILabel(frame: CGRect(x: 20, y: 18, width: w - 40, height: 24))
         title.text = "No podcasts yet"
@@ -422,7 +422,7 @@ class HomeVC: UIViewController {
         v.addSubview(title)
 
         let sub = UILabel(frame: CGRect(x: 20, y: 46, width: w - 40, height: 18))
-        sub.text = "Tap the search icon to find podcasts"
+        sub.text = "Search for a podcast or add its RSS link"
         sub.textColor = UIColor(white: 0.28, alpha: 1)
         sub.backgroundColor = .clear
         sub.font = UIFont.systemFont(ofSize: 12)
@@ -438,6 +438,14 @@ class HomeVC: UIViewController {
         btn.layer.cornerRadius = 17
         btn.addTarget(self, action: #selector(openSearch), for: .touchUpInside)
         v.addSubview(btn)
+
+        let addURL = UIButton(type: .custom)
+        addURL.frame = CGRect(x: (w - 170) / 2, y: 128, width: 170, height: 40)
+        addURL.setTitle("Add Feed URL", for: .normal)
+        addURL.setTitleColor(UIColor(red: 0.75, green: 0.58, blue: 0.9, alpha: 1), for: .normal)
+        addURL.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        addURL.addTarget(self, action: #selector(openAddFeed), for: .touchUpInside)
+        v.addSubview(addURL)
 
         return v
     }
@@ -495,6 +503,10 @@ class HomeVC: UIViewController {
 
     @objc private func openSearch() {
         navigationController?.pushViewController(SearchVC(), animated: true)
+    }
+
+    @objc private func openAddFeed() {
+        navigationController?.pushViewController(AddFeedVC(), animated: true)
     }
 
     @objc private func openSettings() {

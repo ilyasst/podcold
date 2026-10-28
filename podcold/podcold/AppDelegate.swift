@@ -30,6 +30,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 DeviceSmokeTest.run(navigation: nav)
             }
         }
+        if CommandLine.arguments.contains("--podcold-feed-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                DeviceFeedTest.run(navigation: nav)
+            }
+        }
         #endif
 
         return true

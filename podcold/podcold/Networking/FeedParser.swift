@@ -7,6 +7,12 @@ class FeedParser: NSObject, XMLParserDelegate {
     private var currentEpisode: Episode?
     private var currentText = ""
     private var inItem = false          // RSS <item> or Atom <entry>
+    private var elementPath: [String] = []
+    private var sawChannel = false
+    private var feedTitle = ""
+    private var feedAuthor = ""
+    private var itemCount = 0
+    private var stoppedAtLimit = false
 
     private var limit = FeedParser.pageSize
     private static let parseQueue = DispatchQueue(label: "com.podcold.feedparser")
@@ -18,6 +24,60 @@ class FeedParser: NSObject, XMLParserDelegate {
     // abortParsing(), so a deeper re-parse only reads as far as it needs to.
     static let pageSize = 20
 
+    struct PodcastFeed {
+        let podcast: Podcast
+        let episodes: [Episode]
+    }
+
+    static func loadPodcast(feedUrl: String, completion: @escaping (Result<PodcastFeed, Error>) -> Void) {
+        CurlFetcher.fetchFeed(url: feedUrl) { data in
+            guard let data = data else {
+                completion(.failure(feedError("Could not download the feed. Check the link and your connection.")))
+                return
+            }
+            parseQueue.async {
+                let result = parsePodcast(data: data, feedUrl: feedUrl)
+                DispatchQueue.main.async { completion(result) }
+            }
+        }
+    }
+
+    static func parsePodcast(data: Data, feedUrl: String) -> Result<PodcastFeed, Error> {
+        let p = FeedParser()
+        let xml = XMLParser(data: data)
+        xml.shouldResolveExternalEntities = false
+        xml.delegate = p
+        let validXML = xml.parse() || p.stoppedAtLimit
+        guard validXML, p.sawChannel, !p.feedTitle.isEmpty else {
+            return .failure(feedError("This link is not a valid RSS or Atom feed. Use the podcast's RSS link, not its website."))
+        }
+        guard p.itemCount == 0 || !p.episodes.isEmpty else {
+            return .failure(feedError("This feed does not contain playable audio episodes."))
+        }
+        let podcast = Podcast()
+        podcast.feedUrl = feedUrl
+        podcast.title = p.feedTitle
+        podcast.author = p.feedAuthor
+        podcast.artworkUrl = absolute(p.channelArtwork, relativeTo: feedUrl)
+        podcast.artworkUrl600 = podcast.artworkUrl
+        podcast.episodeCount = p.episodes.count
+        for episode in p.episodes {
+            episode.podcastTitle = podcast.title
+            episode.audioUrl = absolute(episode.audioUrl, relativeTo: feedUrl)
+            episode.artworkUrl = absolute(episode.artworkUrl, relativeTo: feedUrl)
+        }
+        return .success(PodcastFeed(podcast: podcast, episodes: p.episodes))
+    }
+
+    private static func absolute(_ value: String, relativeTo feed: String) -> String {
+        guard !value.isEmpty else { return "" }
+        return URL(string: value, relativeTo: URL(string: feed))?.absoluteURL.absoluteString ?? value
+    }
+
+    private static func feedError(_ message: String) -> NSError {
+        return NSError(domain: "Podcold.Feed", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
     static func parse(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
                       completion: @escaping ([Episode]) -> Void) {
         parseKeepingData(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit) { eps, _ in
@@ -27,10 +87,11 @@ class FeedParser: NSObject, XMLParserDelegate {
 
     // Re-parse bytes the caller already holds — no network. Used by
     // EpisodeListVC's load-more.
-    static func parse(data: Data, podcastTitle: String, limit: Int,
+    static func parse(data: Data, podcastTitle: String, limit: Int, feedUrl: String? = nil,
                       completion: @escaping ([Episode]) -> Void) {
         parseQueue.async {
             let eps = runXML(data: data, podcastTitle: podcastTitle, limit: limit)
+            if let url = feedUrl { resolveURLs(eps, feedUrl: url) }
             DispatchQueue.main.async { completion(eps) }
         }
     }
@@ -58,6 +119,7 @@ class FeedParser: NSObject, XMLParserDelegate {
             guard let data = data else { completion([], nil); return }
             FeedParser.parseQueue.async {
                 let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle, limit: limit)
+                resolveURLs(eps, feedUrl: feedUrl)
                 DispatchQueue.main.async { completion(eps, data) }
             }
         }
@@ -70,6 +132,13 @@ class FeedParser: NSObject, XMLParserDelegate {
     }
 
     // MARK: — Synchronous XML parse
+
+    private static func resolveURLs(_ episodes: [Episode], feedUrl: String) {
+        for episode in episodes {
+            episode.audioUrl = absolute(episode.audioUrl, relativeTo: feedUrl)
+            episode.artworkUrl = absolute(episode.artworkUrl, relativeTo: feedUrl)
+        }
+    }
 
     private static func runXML(data: Data, podcastTitle: String, limit: Int) -> [Episode] {
         let p = FeedParser()
@@ -88,10 +157,13 @@ class FeedParser: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didStartElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?,
                 attributes: [String: String] = [:]) {
+        elementPath.append(elementName)
+        if elementPath == ["rss", "channel"] || elementPath == ["feed"] { sawChannel = true }
         currentText = ""
         switch elementName {
 
         case "item", "entry":
+            itemCount += 1
             inItem = true
             currentEpisode = Episode()
             currentEpisode?.podcastTitle = podcastTitle
@@ -134,7 +206,21 @@ class FeedParser: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName: String?) {
+        defer { elementPath.removeLast() }
         let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !inItem {
+            if elementPath == ["rss", "channel", "title"] || elementPath == ["feed", "title"] {
+                feedTitle = text
+            } else if elementPath == ["rss", "channel", "itunes:author"] ||
+                        elementPath == ["feed", "author", "name"] {
+                feedAuthor = text
+            } else if elementPath == ["rss", "channel", "image", "url"] && channelArtwork.isEmpty {
+                channelArtwork = text
+            } else if elementPath == ["feed", "logo"] && channelArtwork.isEmpty {
+                channelArtwork = text
+            }
+        }
 
         if elementName == "item" || elementName == "entry" {
             if let ep = currentEpisode, !ep.audioUrl.isEmpty {
@@ -148,6 +234,7 @@ class FeedParser: NSObject, XMLParserDelegate {
             inItem = false; currentEpisode = nil
             // RSS/Atom feeds are newest-first — abort as soon as we have enough
             if episodes.count >= limit {
+                stoppedAtLimit = true
                 parser.abortParsing()
             }
             return

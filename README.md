@@ -6,7 +6,7 @@ Fork of [RousseAddict/podcold](https://github.com/RousseAddict/podcold), a podca
 
 The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting test app targets iOS 7.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. The fork's application sources under `podcold/` are compiled directly.
 
-Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, and a live podcast search have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. **Playback, downloads, and background operation still require device testing.** Custom RSS entry and tappable feedback links are subsequent app changes.
+Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, directory search, and adding an RSS feed by URL have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. **Playback, downloads, and background operation still require device testing.** Tappable feedback links are a subsequent app change.
 
 Requirements: Docker, Bash, curl, Git, Python 3, tar with xz support, and sha256sum. Allow roughly 5 GB for the toolchain, SDK, Docker image, download cache, and intermediate files.
 
@@ -24,6 +24,10 @@ Outputs:
 
 Install the IPA using your existing jailbroken-device installation method. It uses the distinct bundle ID `org.ilyasst.podcold.linux` and display name **Podcold Linux**, allowing it to coexist with the original app. Listening state is separate.
 
+## Add a feed by URL
+
+Choose **Add Feed URL** on the empty home screen, or **Search → Add URL** at any time. Paste the RSS or Atom feed link and tap **Add Feed** (or **Go** on the keyboard). The app checks the feed, reads its title, author and artwork, saves the subscription, and opens its episode list. HTTP and HTTPS are supported; links without a scheme default to HTTPS. A podcast website or malformed feed shows an error. An existing subscription opens without creating a duplicate.
+
 ## Physical-device search test
 
 Install `ideviceinstaller` and `libimobiledevice-utils` on the Linux host, pair the unlocked iPod, and mount Apple's signed iOS 7.1 developer image with `ideviceimagemounter`. A mounted developer image enables screenshots and launching; it is not installed by the build script.
@@ -35,6 +39,14 @@ python3 scripts/test-device.py --install
 ```
 
 The test starts the app over USB, invokes its search button action, checks the actual field position and keyboard focus, then submits `audio drama` through the normal search delegate. It requires nonempty live results, so internet access is needed. It does not subscribe to a show or change listening state. Results and screenshots go into `.build-linux/device-test/`; Pillow is optional for PNG conversion. A per-run token prevents historical device logs from being mistaken for a new pass.
+
+To test URL subscriptions instead, supply a live podcast feed:
+
+```bash
+python3 scripts/test-device.py --install --feed-url https://example.com/feed.xml
+```
+
+This scenario exercises the Add URL action, input and keyboard layout, invalid URLs, RSS/Atom metadata and validation fixtures, live episode loading, saved subscriptions, and duplicate detection. It temporarily adds the supplied feed and restores the original subscription list before reporting completion. The runner then reopens the normal home screen. Its report is `feed-results.json`; `feed-url` and `feed-added` screenshots are saved alongside it. This scenario expects the live feed to contain at least one episode, though the app can subscribe to valid empty feeds too.
 
 `PODCOLD_DEBUG=1` signs only the test app executable with `get-task-allow` for debugging. `PODCOLD_DEVICE_TESTING=1` compiles the test runner; it runs only with the explicit `--podcold-device-test` launch argument. Both are off by default. Switching test mode invalidates cached objects. The `device_tested` field produced by static IPA verification stays false: the separate device-test report is the runtime evidence.
 

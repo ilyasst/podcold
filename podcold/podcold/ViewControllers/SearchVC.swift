@@ -12,6 +12,8 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
         // Keep the input below the navigation bar on iOS 7, where the default
         // extended layout would place its entire 44-point height underneath it.
         edgesForExtendedLayout = []
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "Add URL", style: .plain, target: self, action: #selector(openAddFeed))
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
     }
 
@@ -57,6 +59,11 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
             self.results = podcasts
             self.tableView.reloadData()
         }
+    }
+
+    @objc private func openAddFeed() {
+        searchBar.resignFirstResponder()
+        navigationController?.pushViewController(AddFeedVC(), animated: true)
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { results.count }

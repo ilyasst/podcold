@@ -271,7 +271,9 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
             // spinner spins forever.
             self.updateFooter()
             guard self.episodes.isEmpty else { return }
-            self.emptyLabel.text = "Could not load episodes.\nCheck your connection."
+            self.emptyLabel.text = data == nil
+                ? "Could not load episodes.\nCheck your connection."
+                : "No audio episodes in this feed yet."
             self.emptyView.isHidden = false
         }
     }
@@ -315,7 +317,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         }
 
         if let data = feedData {
-            FeedParser.parse(data: data, podcastTitle: podcast.title, limit: next, completion: apply)
+            FeedParser.parse(data: data, podcastTitle: podcast.title, limit: next, feedUrl: podcast.feedUrl, completion: apply)
         } else {
             // Feed was too big to keep in memory — pay for a re-fetch instead,
             // and take the lane off the background batch for the same reason.

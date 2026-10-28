@@ -21,6 +21,37 @@ class Podcast: NSObject {
         UserDefaults.standard.set(podcasts.map { $0.toDict() }, forKey: subscriptionsKey)
     }
 
+    static func normalizedFeedURL(_ input: String) -> String? {
+        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
+        if !text.contains("://") { text = "https://" + text }
+        guard let parts = NSURLComponents(string: text),
+              let scheme = parts.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = parts.host, !host.isEmpty else { return nil }
+        parts.scheme = scheme
+        parts.host = host.lowercased()
+        parts.fragment = nil
+        if (scheme == "https" && parts.port?.intValue == 443) || (scheme == "http" && parts.port?.intValue == 80) {
+            parts.port = nil
+        }
+        return parts.url?.absoluteString
+    }
+
+    static func subscription(feedUrl: String) -> Podcast? {
+        let key = normalizedFeedURL(feedUrl) ?? feedUrl
+        return loadSubscriptions().first { (normalizedFeedURL($0.feedUrl) ?? $0.feedUrl) == key }
+    }
+
+    // Recheck at save time too, so asynchronous validation cannot add duplicates.
+    @discardableResult
+    static func subscribe(_ podcast: Podcast) -> Podcast {
+        if let existing = subscription(feedUrl: podcast.feedUrl) { return existing }
+        var subscriptions = loadSubscriptions()
+        subscriptions.append(podcast)
+        saveSubscriptions(subscriptions)
+        return podcast
+    }
+
     static func isSubscribed(feedUrl: String) -> Bool {
         guard let arr = UserDefaults.standard.array(forKey: subscriptionsKey) as? [[String: Any]] else { return false }
         return arr.contains { ($0["feedUrl"] as? String) == feedUrl }
