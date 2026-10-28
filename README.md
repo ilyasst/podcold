@@ -6,7 +6,7 @@ Fork of [RousseAddict/podcold](https://github.com/RousseAddict/podcold), a podca
 
 The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting test app targets iOS 7.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. The fork's application sources under `podcold/` are compiled directly.
 
-Build, packaging, and USB installation have been checked on Linux. The first device launch on an iPod touch 4 running iOS 7.1.2 exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork also fixes a blank home screen on fresh installations by always performing the initial layout, even when all subscription and episode lists are empty. **The corrected home screen, playback, downloads, and background operation still require testing on the physical iPod.** Custom RSS entry and tappable feedback links are subsequent app changes.
+Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, and a live podcast search have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. **Playback, downloads, and background operation still require device testing.** Custom RSS entry and tappable feedback links are subsequent app changes.
 
 Requirements: Docker, Bash, curl, Git, Python 3, tar with xz support, and sha256sum. Allow roughly 5 GB for the toolchain, SDK, Docker image, download cache, and intermediate files.
 
@@ -23,6 +23,22 @@ Outputs:
 - `dist/linux-build.json`: source/toolchain revisions, artifact hash, and structural verification results.
 
 Install the IPA using your existing jailbroken-device installation method. It uses the distinct bundle ID `org.ilyasst.podcold.linux` and display name **Podcold Linux**, allowing it to coexist with the original app. Listening state is separate.
+
+## Physical-device search test
+
+Install `ideviceinstaller` and `libimobiledevice-utils` on the Linux host, pair the unlocked iPod, and mount Apple's signed iOS 7.1 developer image with `ideviceimagemounter`. A mounted developer image enables screenshots and launching; it is not installed by the build script.
+
+```bash
+PODCOLD_DEBUG=1 PODCOLD_DEVICE_TESTING=1 ./scripts/build-linux.sh
+ideviceimagemounter mount /path/to/DeveloperDiskImage.dmg
+python3 scripts/test-device.py --install
+```
+
+The test starts the app over USB, invokes its search button action, checks the actual field position and keyboard focus, then submits `audio drama` through the normal search delegate. It requires nonempty live results, so internet access is needed. It does not subscribe to a show or change listening state. Results and screenshots go into `.build-linux/device-test/`; Pillow is optional for PNG conversion. A per-run token prevents historical device logs from being mistaken for a new pass.
+
+`PODCOLD_DEBUG=1` signs only the test app executable with `get-task-allow` for debugging. `PODCOLD_DEVICE_TESTING=1` compiles the test runner; it runs only with the explicit `--podcold-device-test` launch argument. Both are off by default. Switching test mode invalidates cached objects. The `device_tested` field produced by static IPA verification stays false: the separate device-test report is the runtime evidence.
+
+For stack inspection with the bundled Linux LLDB, `scripts/linux/Dockerfile.debug` adds its missing Python runtime to a separate image. This is optional; the automatic test does not need the debugger's expression evaluator.
 
 ## Build details
 

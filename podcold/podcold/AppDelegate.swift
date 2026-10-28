@@ -24,6 +24,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Clear ".part" sidecars left behind by downloads a crash or force-quit cut short.
         EpisodeDownloader.sweepStalePartFiles()
 
+        #if PODCOLD_DEVICE_TESTING
+        if CommandLine.arguments.contains("--podcold-device-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                DeviceSmokeTest.run(navigation: nav)
+            }
+        }
+        #endif
+
         return true
     }
 

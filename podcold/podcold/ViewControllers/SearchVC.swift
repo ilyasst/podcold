@@ -9,6 +9,9 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Keep the input below the navigation bar on iOS 7, where the default
+        // extended layout would place its entire 44-point height underneath it.
+        edgesForExtendedLayout = []
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
     }
 
@@ -17,8 +20,8 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
         guard !didSetupUI else { return }
         didSetupUI = true
         title = "Search"
-        let w = UIScreen.main.bounds.width
-        let h = UIScreen.main.bounds.height
+        let w = view.bounds.width
+        let h = view.bounds.height
 
         searchBar.placeholder = "Search podcasts..."
         searchBar.delegate    = self
@@ -41,6 +44,7 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
         spinner.center = CGPoint(x: w / 2, y: h / 2)
         spinner.hidesWhenStopped = true
         view.addSubview(spinner)
+        searchBar.becomeFirstResponder()
     }
 
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {

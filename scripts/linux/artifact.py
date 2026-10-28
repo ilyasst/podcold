@@ -62,6 +62,14 @@ def macho(data):
 def prepare():
     project = CACHE / 'project'
     project.mkdir(parents=True, exist_ok=True)
+    test_mode = '1' if os.environ.get('PODCOLD_DEVICE_TESTING') == '1' else '0'
+    mode_file = project / '.device-test-mode'
+    if not mode_file.exists() or mode_file.read_text() != test_mode:
+        # Conditional Swift code must be recompiled when switching test mode.
+        objects = project / '.theos/obj'
+        if objects.exists():
+            shutil.rmtree(objects)
+        mode_file.write_text(test_mode)
     resources, runtime = project / 'Resources', CACHE / 'runtime'
     resources.mkdir(exist_ok=True)
     runtime.mkdir(exist_ok=True)
@@ -165,15 +173,22 @@ def package():
     # Resolve CoreMedia's Swift overlay from the bundle, as in the upstream IPA.
     subprocess.run([str(tools / 'install_name_tool'), '-change', '/usr/lib/swift/libswiftCoreMedia.dylib',
                     '@rpath/libswiftCoreMedia.dylib', str(executable)], check=True)
+    debug = os.environ.get('PODCOLD_DEBUG') == '1'
+    signing_option = '-S'
+    if debug:
+        entitlements = CACHE / 'debug.entitlements.plist'
+        entitlements.write_bytes(plistlib.dumps({'get-task-allow': True}))
+        signing_option += str(entitlements)
     for binary in list((app / 'Frameworks').glob('*.dylib')) + [executable]:
         binary.chmod(0o755)
-        subprocess.run([str(tools / 'ldid'), '-S', str(binary)], check=True)
+        subprocess.run([str(tools / 'ldid'), signing_option if binary == executable else '-S', str(binary)], check=True)
     IPA.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(IPA, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for file in sorted(app.rglob('*')):
             if file.is_file():
                 archive.write(file, file.relative_to(staging))
     result = verify(IPA)
+    result['debuggable'] = debug
     result['source_commit'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
     result['theos_commit'] = subprocess.check_output(['git', '-C', str(CACHE / 'theos'), 'rev-parse', 'HEAD'], text=True).strip()
     result['sdk_commit'] = subprocess.check_output(['git', '-C', str(CACHE / 'sdks'), 'rev-parse', 'HEAD'], text=True).strip()

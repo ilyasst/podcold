@@ -49,8 +49,10 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     --pids-limit 256 --memory 4g --cpus 2 --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$repo_root,target=/workspace" \
     --workdir /workspace/.build-linux/project \
-    --env THEOS=/workspace/.build-linux/theos podcold-linux:swift56 make -j2
+    --env THEOS=/workspace/.build-linux/theos --env PODCOLD_DEVICE_TESTING podcold-linux:swift56 make -j2
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     --pids-limit 256 --memory 1g --cpus 2 --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$repo_root,target=/workspace" \
+    --env PODCOLD_DEBUG \
+    --env PODCOLD_DEVICE_TESTING \
     podcold-linux:swift56 python3 scripts/linux/artifact.py package
