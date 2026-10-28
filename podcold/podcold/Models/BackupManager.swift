@@ -64,7 +64,11 @@ struct BackupManager {
             "queue":         queue,
             "durations":     durations,
             "autoDeleteFinished": Episode.autoDeleteFinished,
-            "maxNewEpisodes":     UpNextManager.maxNewEpisodes
+            "maxNewEpisodes":     UpNextManager.maxNewEpisodes,
+            "autoQueue": AutoEpisodeManager.queueEnabled,
+            "autoDownload": AutoEpisodeManager.downloadEnabled,
+            "autoDownloadLimit": AutoEpisodeManager.downloadLimit,
+            "autoEpisodeState": ud.dictionary(forKey: AutoEpisodeManager.stateKey) ?? [:]
         ]
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted)
@@ -108,6 +112,10 @@ struct BackupManager {
         // rather than silently resetting it on every old-file import.
         let autoDeleteFinished: Bool?
         let maxNewEpisodes:     Int?
+        let autoQueue: Bool?
+        let autoDownload: Bool?
+        let autoDownloadLimit: Int?
+        let autoEpisodeState: [String: Any]?
         let filePath:      String
 
         var fileName: String { (filePath as NSString).lastPathComponent }
@@ -151,6 +159,10 @@ struct BackupManager {
             // "absent" instead of writing an out-of-range value the stepper can't show.
             maxNewEpisodes: (dict["maxNewEpisodes"] as? Int)
                 .flatMap { UpNextManager.maxNewEpisodesRange.contains($0) ? $0 : nil },
+            autoQueue: dict["autoQueue"] as? Bool,
+            autoDownload: dict["autoDownload"] as? Bool,
+            autoDownloadLimit: (dict["autoDownloadLimit"] as? Int).flatMap { AutoEpisodeManager.limitRange.contains($0) ? $0 : nil },
+            autoEpisodeState: dict["autoEpisodeState"] as? [String: Any],
             filePath:      filePath)
     }
 
@@ -233,10 +245,34 @@ struct BackupManager {
             // would not be felt until then.
             LatestEpisodeCache.clear()
         }
+        if let value = backup.autoQueue { AutoEpisodeManager.queueEnabled = value }
+        if let value = backup.autoDownload { AutoEpisodeManager.downloadEnabled = value }
+        if let value = backup.autoDownloadLimit { AutoEpisodeManager.downloadLimit = value }
+        if let imported = backup.autoEpisodeState {
+            switch mode {
+            case .replace: ud.set(imported, forKey: AutoEpisodeManager.stateKey)
+            case .merge:
+                var current = ud.dictionary(forKey: AutoEpisodeManager.stateKey) ?? [:]
+                var seen = current["seen"] as? [String: [String]] ?? [:]
+                for (feed, ids) in imported["seen"] as? [String: [String]] ?? [:] {
+                    seen[feed] = Array(Set((seen[feed] ?? []) + ids)).sorted()
+                }
+                var items = current["items"] as? [[String: Any]] ?? []
+                var ids = Set(items.compactMap { ($0["episode"] as? [String: Any])?["guid"] as? String })
+                for item in imported["items"] as? [[String: Any]] ?? [] {
+                    if let guid = (item["episode"] as? [String: Any])?["guid"] as? String, ids.insert(guid).inserted { items.append(item) }
+                }
+                current["seen"] = seen; current["items"] = items
+                ud.set(current, forKey: AutoEpisodeManager.stateKey)
+            }
+        } else if case .replace = mode {
+            ud.removeObject(forKey: AutoEpisodeManager.stateKey)
+        }
         ud.synchronize()
 
         // PlayQueue.shared holds its list in memory — without this it would keep
         // serving the pre-import queue and overwrite the imported one on next save.
         PlayQueue.shared.reload()
+        AutoEpisodeManager.shared.settingsChanged()
     }
 }

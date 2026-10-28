@@ -25,16 +25,18 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     // MARK: - UITableViewDataSource
 
-    func numberOfSections(in tableView: UITableView) -> Int { return 3 }
+    func numberOfSections(in tableView: UITableView) -> Int { return 4 }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return section == 2 ? 2 : 1
+        if section == 1 { return 4 }
+        return section == 3 ? 2 : 1
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
         case 0:  return "Downloads"
-        case 1:  return "New Episodes"
+        case 1:  return "Automatic Episodes"
+        case 2:  return "New Episodes"
         default: return "Backup & Restore"
         }
     }
@@ -44,6 +46,8 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         case 0:
             return "When on, the downloaded file is deleted once an episode finishes playing or you tap Done."
         case 1:
+            return "The switches work independently. The limit counts unplayed automatic downloads across all feeds and refills as you finish them. Manual downloads are separate; lowering the limit keeps existing files. First checks use the window below. Feeds refresh on opening and every 45 minutes while active."
+        case 2:
             return "How many of a podcast's most recent unplayed episodes can be offered. Once you tap Done on all of them, that podcast stays quiet until it publishes something new."
         default:
             return "To migrate to a new device: export, share via email, then copy the .json file to the new device via iTunes/Finder File Sharing and tap Import."
@@ -70,6 +74,37 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         }
 
         if indexPath.section == 1 {
+            cell.textLabel?.font = UIFont.systemFont(ofSize: 14)
+            cell.selectionStyle = .none
+            switch indexPath.row {
+            case 0, 1:
+                let queue = indexPath.row == 0
+                cell.textLabel?.text = queue ? "Add new episodes to queue" : "Auto download episodes"
+                let sw = UISwitch()
+                sw.isOn = queue ? AutoEpisodeManager.queueEnabled : AutoEpisodeManager.downloadEnabled
+                sw.accessibilityIdentifier = queue ? "auto-queue" : "auto-download"
+                sw.addTarget(self, action: queue ? #selector(autoQueueChanged(_:)) : #selector(autoDownloadChanged(_:)), for: .valueChanged)
+                cell.accessoryView = sw
+            case 2:
+                cell.textLabel?.text = "Auto download limit"
+                cell.detailTextLabel?.text = "\(AutoEpisodeManager.downloadLimit)"
+                let stepper = UIStepper()
+                stepper.minimumValue = Double(AutoEpisodeManager.limitRange.lowerBound)
+                stepper.maximumValue = Double(AutoEpisodeManager.limitRange.upperBound)
+                stepper.value = Double(AutoEpisodeManager.downloadLimit)
+                stepper.accessibilityIdentifier = "auto-download-limit"
+                stepper.addTarget(self, action: #selector(autoDownloadLimitChanged(_:)), for: .valueChanged)
+                cell.accessoryView = stepper
+            default:
+                cell.textLabel?.text = "Check feeds now"
+                cell.textLabel?.textColor = UIColor(red: 0.65, green: 0.4, blue: 0.85, alpha: 1)
+                cell.selectionStyle = .default
+                cell.accessibilityIdentifier = "check-feeds-now"
+            }
+            return cell
+        }
+
+        if indexPath.section == 2 {
             cell.textLabel?.text = "Max new episodes"
             cell.detailTextLabel?.text = "\(UpNextManager.maxNewEpisodes)"
             cell.selectionStyle = .none
@@ -99,7 +134,12 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard indexPath.section == 2 else { return }
+        if indexPath.section == 1 && indexPath.row == 3 {
+            LatestEpisodeCache.clear()
+            AutoEpisodeManager.shared.settingsChanged()
+            return
+        }
+        guard indexPath.section == 3 else { return }
         if indexPath.row == 0 { handleExport() }
         else                  { handleImport() }
     }
@@ -108,6 +148,24 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     @objc private func autoDeleteChanged(_ sender: UISwitch) {
         Episode.autoDeleteFinished = sender.isOn
+    }
+
+    // MARK: - Automatic episodes
+
+    @objc private func autoQueueChanged(_ sender: UISwitch) {
+        AutoEpisodeManager.queueEnabled = sender.isOn
+        AutoEpisodeManager.shared.settingsChanged()
+    }
+
+    @objc private func autoDownloadChanged(_ sender: UISwitch) {
+        AutoEpisodeManager.downloadEnabled = sender.isOn
+        AutoEpisodeManager.shared.settingsChanged()
+    }
+
+    @objc private func autoDownloadLimitChanged(_ sender: UIStepper) {
+        AutoEpisodeManager.downloadLimit = Int(sender.value)
+        tableView.cellForRow(at: IndexPath(row: 2, section: 1))?.detailTextLabel?.text = "\(AutoEpisodeManager.downloadLimit)"
+        AutoEpisodeManager.shared.settingsChanged()
     }
 
     // MARK: - New Episodes
@@ -119,7 +177,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         LatestEpisodeCache.clear()
         // Repainting just the label, not reloadSections: rebuilding the cell would swap
         // out the stepper the finger is still on and kill its press-and-hold repeat.
-        let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 1))
+        let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 2))
         cell?.detailTextLabel?.text = "\(Int(sender.value))"
     }
 

@@ -9,6 +9,10 @@ import Foundation
 // the whole-plist rewrite UserDefaults performs on every change is affordable
 // here in a way it is not for a 20-episode feed cache (which is why
 // EpisodeListCache uses one plist per feed under Caches instead).
+extension Notification.Name {
+    static let playQueueChanged = Notification.Name("podcold.queue.changed")
+}
+
 class PlayQueue {
     static let shared = PlayQueue()
     private init() { episodes = PlayQueue.load() }
@@ -17,6 +21,7 @@ class PlayQueue {
     static let storageKey = "play_queue"
 
     private(set) var episodes: [Episode]
+    private var notifying = false
 
     private static func load() -> [Episode] {
         guard let arr = UserDefaults.standard.array(forKey: storageKey) as? [[String: Any]] else { return [] }
@@ -29,6 +34,12 @@ class PlayQueue {
 
     private func save() {
         UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.storageKey)
+        guard !notifying else { return }
+        notifying = true
+        DispatchQueue.main.async {
+            self.notifying = false
+            NotificationCenter.default.post(name: .playQueueChanged, object: self)
+        }
     }
 
     func contains(guid: String) -> Bool {

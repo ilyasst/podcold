@@ -221,6 +221,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     // viewDidLoad, so pushing anything on top and coming back left a dead slider.
     private func observePlayer() {
         let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(refreshQueue), name: .playQueueChanged, object: nil)
         nc.addObserver(self, selector: #selector(updateSleepButton),
                        name: .sleepTimerChanged, object: nil)
         nc.addObserver(self, selector: #selector(playerTimeChanged),
@@ -352,7 +353,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
 
     // MARK: - Queue
 
-    private func refreshQueue() {
+    @objc private func refreshQueue() {
         guard tableView != nil else { return }
         tableView.reloadData()
         updateEditButton()

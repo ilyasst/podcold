@@ -217,35 +217,49 @@ enum DeviceNotesTest {
         let player = AudioPlayer.shared
         if PlayQueue.shared.episodes.isEmpty && player.state == .playing && player.currentTime > 1 {
             checks["sleep_cancel_restores_queue"] = !player.hasSleepTimer && player.currentTime < 20
-            // Use a short real deadline so the physical-device test does not take
-            // an hour. The menu presets above exercise the actual 15/30/60 values.
-            player.setSleepTimer(seconds: 8)
+            // Verify the timer survives a player reload, then wait for actual
+            // audio before measuring its short background stop deadline.
+            player.setSleepTimer(seconds: 60)
             let remaining = player.sleepTimerRemaining ?? 0
             if let ep = episode { player.play(episode: ep) }
             checks["sleep_deadline_survives_episode_change"] = (player.sleepTimerRemaining ?? 0) <= remaining && player.hasSleepTimer
+            attempts = 0
+            pollSleepReload()
+            return
+        }
+        attempts += 1
+        if attempts >= 20 { finish("Queue did not advance after disabling sleep timer"); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pollSleepQueue() }
+    }
+
+    private static func pollSleepReload() {
+        let player = AudioPlayer.shared
+        if player.state == .playing && player.currentTime > 1 {
             guard let screen = detail,
                   let notes = views(screen.view).first(where: { $0.accessibilityIdentifier == "episode-notes" }) as? UITextView,
                   let link = linkRuns(notes.attributedText).first(where: { $0.0 == "Listened" }) else {
                 finish("Feedback link missing for background timer test"); return
             }
-            // After pausing, iOS may suspend the process. Keep the test harness
-            // alive just long enough to observe that pause and report the result.
+            player.setSleepTimer(seconds: 8)
+            checks["sleep_background_start_position"] = player.currentTime
             backgroundTask = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
             emit("sleep_background")
             _ = screen.textView(notes, shouldInteractWith: link.1, in: link.2)
             DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
                 checks["sleep_background_pause"] = UIApplication.shared.applicationState == .background && player.state == .paused && !player.hasSleepTimer
                 let position = player.currentTime
+                checks["sleep_stop_position"] = position
+                checks["sleep_saved_position"] = episode?.savedPosition() ?? 0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    checks["sleep_position_preserved"] = position > 0 && abs(player.currentTime - position) < 1 && player.currentEpisode?.guid == episode?.guid
+                    checks["sleep_position_preserved"] = position > 0 && abs(player.currentTime - position) < 1 && player.currentEpisode?.guid == episode?.guid && (episode?.savedPosition() ?? 0) > 0
                     finish(nil)
                 }
             }
             return
         }
         attempts += 1
-        if attempts >= 20 { finish("Queue did not advance after disabling sleep timer"); return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pollSleepQueue() }
+        if attempts >= 40 { finish("Audio did not restart before background sleep check"); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pollSleepReload() }
     }
 
     private static func openFeedback() {

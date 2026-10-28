@@ -100,6 +100,7 @@ class AddFeedVC: UIViewController, UITextFieldDelegate {
             case .success(let feed):
                 let podcast = Podcast.subscribe(feed.podcast)
                 EpisodeListCache.store(feedUrl: podcast.feedUrl, episodes: feed.episodes)
+                AutoEpisodeManager.shared.observe(feedURL: podcast.feedUrl, episodes: feed.episodes)
                 self.open(podcast)
             case .failure(let error):
                 self.showError(error.localizedDescription)

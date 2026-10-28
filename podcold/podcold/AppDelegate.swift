@@ -8,6 +8,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         #if PODCOLD_DEVICE_TESTING
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--podcold-") && $0.hasSuffix("-test") }) {
+            AutoEpisodeManager.shared.suspendForTest(true)
+        }
+        DeviceAutoEpisodeTest.restoreInterruptedTest()
         DeviceNotesTest.restoreInterruptedTest()
         #endif
         let nav = UINavigationController(rootViewController: HomeVC())
@@ -25,7 +29,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.addSubview(miniBar)
 
         // Clear ".part" sidecars left behind by downloads a crash or force-quit cut short.
-        EpisodeDownloader.sweepStalePartFiles()
+        EpisodeDownloader.sweepStalePartFiles { AutoEpisodeManager.shared.downloadsReady() }
 
         #if PODCOLD_DEVICE_TESTING
         if CommandLine.arguments.contains("--podcold-device-test") {
@@ -43,6 +47,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 DeviceNotesTest.run(navigation: nav, sleepTimer: true)
             }
         }
+        if CommandLine.arguments.contains("--podcold-auto-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                DeviceAutoEpisodeTest.run(navigation: nav)
+            }
+        }
         if CommandLine.arguments.contains("--podcold-feed-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 DeviceFeedTest.run(navigation: nav)
@@ -57,6 +66,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // outright, and willTerminate covers a user swipe-kill. Without these, the 5-s
     // write throttle loses whatever was played since the last tick.
     func applicationDidEnterBackground(_ application: UIApplication) {
+        AutoEpisodeManager.shared.enteredBackground()
         AudioPlayer.shared.flushPosition()
     }
 
@@ -69,6 +79,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     override var canBecomeFirstResponder: Bool { return true }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        AutoEpisodeManager.shared.becameActive()
         AudioPlayer.shared.checkSleepTimer()
         becomeFirstResponder()
         application.beginReceivingRemoteControlEvents()

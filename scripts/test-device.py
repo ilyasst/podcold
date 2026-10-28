@@ -21,12 +21,17 @@ def main():
     parser.add_argument('--feed-url', help='Test adding this real podcast feed instead of directory search; original subscriptions are restored')
     parser.add_argument('--notes-playback', action='store_true', help='Test native notes links, download, playback and Safari background audio; requires --feed-url')
     parser.add_argument('--sleep-timer', action='store_true', help='Test sleep presets, end-of-episode, queue preservation and a short background deadline; requires --feed-url')
+    parser.add_argument('--auto-episodes', action='store_true', help='Test automatic queueing, download limits and settings with temporary episode identities; requires --feed-url')
     args = parser.parse_args()
+    if args.auto_episodes and (args.sleep_timer or args.notes_playback):
+        parser.error('Choose only one playback/automatic scenario')
+    if args.auto_episodes and not args.feed_url:
+        parser.error('--auto-episodes requires --feed-url')
     if args.sleep_timer and args.notes_playback:
         parser.error('Choose either --sleep-timer or --notes-playback')
     if args.sleep_timer and not args.feed_url:
         parser.error('--sleep-timer requires --feed-url')
-    playback_test = args.notes_playback or args.sleep_timer
+    playback_test = args.notes_playback or args.sleep_timer or args.auto_episodes
     if args.notes_playback and not args.feed_url:
         parser.error('--notes-playback requires --feed-url')
     devices = subprocess.check_output(['idevice_id', '-l'], text=True).splitlines()
@@ -35,7 +40,7 @@ def main():
     udid = args.udid or devices[0]
     output = ROOT / '.build-linux/device-test'
     output.mkdir(parents=True, exist_ok=True)
-    results_file = output / ('sleep-results.json' if args.sleep_timer else 'notes-results.json' if args.notes_playback else 'feed-results.json' if args.feed_url else 'results.json')
+    results_file = output / ('auto-results.json' if args.auto_episodes else 'sleep-results.json' if args.sleep_timer else 'notes-results.json' if args.notes_playback else 'feed-results.json' if args.feed_url else 'results.json')
     results_file.unlink(missing_ok=True)
 
     def command(arguments, timeout=30, check=True):
@@ -67,10 +72,10 @@ def main():
     reports, pending = [], b''
     try:
         # -- prevents GNU getopt from interpreting the app's own arguments.
-        launch_args = [('--podcold-sleep-test' if args.sleep_timer else '--podcold-notes-test' if args.notes_playback else '--podcold-feed-test'), '--podcold-feed-url=' + args.feed_url] if args.feed_url else ['--podcold-device-test']
+        launch_args = [('--podcold-auto-test' if args.auto_episodes else '--podcold-sleep-test' if args.sleep_timer else '--podcold-notes-test' if args.notes_playback else '--podcold-feed-test'), '--podcold-feed-url=' + args.feed_url] if args.feed_url else ['--podcold-device-test']
         command(['idevicedebug', '-u', udid, '--detach', '--', 'run', BUNDLE] +
                 launch_args + ['--podcold-test-token=' + token])
-        deadline = time.monotonic() + (300 if args.sleep_timer else 240 if args.notes_playback else 120 if args.feed_url else 65)
+        deadline = time.monotonic() + (420 if args.auto_episodes else 300 if args.sleep_timer else 240 if args.notes_playback else 120 if args.feed_url else 65)
         while time.monotonic() < deadline:
             if not select.select([log.stdout], [], [], 1)[0]:
                 continue
@@ -99,13 +104,15 @@ def main():
                     screenshot('feed-url')
                 if report['stage'] == 'notes_rendered':
                     screenshot('episode-notes')
+                if report['stage'] == 'auto_settings':
+                    screenshot('auto-settings')
                 if report['stage'] == 'sleep_menu':
                     screenshot('sleep-menu')
                 if report['stage'] == 'opening_feedback':
                     time.sleep(3)
                     screenshot('feedback-safari')
                 if report['stage'] == 'complete':
-                    screenshot('sleep-complete' if args.sleep_timer else 'notes-complete' if args.notes_playback else 'feed-added' if args.feed_url else 'search-results')
+                    screenshot('auto-complete' if args.auto_episodes else 'sleep-complete' if args.sleep_timer else 'notes-complete' if args.notes_playback else 'feed-added' if args.feed_url else 'search-results')
                     if args.feed_url and not playback_test:
                         command(['idevicedebug', '-u', udid, 'kill', BUNDLE], check=False)
                         command(['idevicedebug', '-u', udid, '--detach', 'run', BUNDLE])

@@ -101,6 +101,7 @@ class UpNextManager {
         onSyncStateChange?()
         FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
             guard let self = self else { return }
+            AutoEpisodeManager.shared.observe(feedURL: podcast.feedUrl, episodes: episodes)
             // Feed order is newest-first, so the window is simply the head of the list.
             let qualifying = episodes.prefix(UpNextManager.maxNewEpisodes).first {
                 !self.inProgressGuids.contains($0.guid) && !Episode.isPlayed(guid: $0.guid)

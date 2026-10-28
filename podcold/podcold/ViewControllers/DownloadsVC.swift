@@ -19,10 +19,22 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         tableView.rowHeight        = 68
         tableView.contentInset     = UIEdgeInsets(top: 0, left: 0, bottom: 60, right: 0)
         view.addSubview(tableView)
+        NotificationCenter.default.addObserver(self, selector: #selector(reloadDownloads), name: .episodeLibraryChanged, object: nil)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        reloadDownloadsFromDisk()
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func reloadDownloads() {
+        guard isViewLoaded, view.window != nil else { return }
+        reloadDownloadsFromDisk()
+    }
+
+    private func reloadDownloadsFromDisk() {
         let loaded = Episode.loadDownloads()
         episodes = loaded
         // stat() on flash is <0.1ms per file — synchronous precompute avoids double reloadData

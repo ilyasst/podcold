@@ -129,6 +129,9 @@ class Episode: NSObject {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         set.insert(guid)
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+        // Defer refill until finishCurrent has advanced the player and removed a
+        // completed file, so it cannot race the end-of-episode transition.
+        DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
     }
 
     // Deliberately replaying a finished episode has to undo the marker, or it
@@ -239,6 +242,7 @@ class Episode: NSObject {
         var list = loadAllDownloadRecords()
         list.removeAll { $0.guid == guid }
         UserDefaults.standard.set(list.map { $0.toDict() }, forKey: downloadsKey)
+        DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
     }
 
     // MARK: - Auto-delete finished downloads

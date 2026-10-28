@@ -248,6 +248,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
             self.retainFeedData(data)
 
             if !eps.isEmpty {
+                AutoEpisodeManager.shared.observe(feedURL: self.podcast.feedUrl, episodes: eps)
                 self.episodes = eps
                 self.loadedLimit = FeedParser.pageSize
                 // A full page means the parser stopped early, so there is more.
@@ -362,6 +363,8 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
             subs.append(podcast)
         }
         Podcast.saveSubscriptions(subs)
+        AutoEpisodeManager.shared.observe(feedURL: podcast.feedUrl, episodes: episodes)
+        AutoEpisodeManager.shared.reconcile()
         updateSubscribeButton()
     }
 

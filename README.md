@@ -36,6 +36,21 @@ Notes use a native, read-only iOS 7 text view. Labels, paragraphs, lists, HTML e
 
 Episode credits also preserve item-level `itunes:author`, Dublin Core creator, and Atom episode authors. The original author appears as a byline in episode details, as the Now Playing subtitle, and as the lock-screen artist. Saved episodes retain that credit; older saved records without it continue to load. Refresh the feed to obtain newly published author metadata. Podweaver’s notes separately identify the original podcast and author for players that ignore item-level authors.
 
+## Automatic queue and downloads
+
+Open **Settings → Automatic Episodes**:
+
+- **Add new episodes to queue** appends new arrivals to Up Next, oldest first within each feed refresh. It does not start playback.
+- **Auto download episodes** downloads arrivals one at a time. This switch works independently of queueing.
+- **Auto download limit** keeps 1–20 automatic, unplayed downloads ready across all subscriptions (default **3**). It refills as you finish episodes. Manual downloads do not consume this allowance. Lowering the limit keeps existing files; turning downloading off lets an already-started transfer finish.
+- **Check feeds now** requests a fresh check immediately.
+
+Queueing and downloading default to **on**. A feed’s first successful check considers only its **Max new episodes** window (default 3), then remembers the identities in the fetched page. Later checks append newly seen episodes once. The window limits initial selection, rather than repeatedly walking through the back catalogue. Played/current episodes are excluded. Clearing the home-screen cache, relaunching, or removing a queued row does not re-add it. A manually deleted automatic download stays deleted.
+
+Feed checks run on opening and at the existing 45-minute refresh interval while the app is active. This legacy build does not schedule checks while closed or suspended. Pending downloads and failed-transfer retry times persist; interrupted downloads can restart when the app returns. Failed transfers wait at least 15 minutes before retrying. No new network dependency or thread-per-episode worker is added. Manual and automatic requests for the same episode share one transfer.
+
+The limit counts unplayed automatic files, rather than all historical files. **Delete after playing** controls whether finished files are removed. These preferences, arrival history, and pending work are included in backup/export and restore; old backups remain compatible.
+
 ## Sleep timer
 
 On **Now Playing**, scroll below the speed control and tap **Sleep timer: Off**. Choose **15 minutes**, **30 minutes**, **60 minutes**, or **End of episode**. The button shows the remaining countdown or the end-of-episode choice. Open it again to replace the timer or choose **Turn off**; **Cancel** leaves the current setting alone.
@@ -79,6 +94,14 @@ python3 scripts/test-device.py --install --sleep-timer --feed-url https://exampl
 ```
 
 This checks the native menu, all three minute presets, Cancel/Turn off, stopping at the real end of an audio file with a queued episode, queue advancement after disabling the timer, and an accelerated eight-second deadline while Safari is in front. The report is `sleep-results.json`. The short deadline checks the same timer code as the presets; it is not a full 60-minute or screen-lock endurance test. The harness holds a temporary background task to report the result after audio pauses; the normal player uses its existing background-audio mode.
+
+To check automatic arrivals and downloads on the physical device:
+
+```bash
+python3 scripts/test-device.py --install --auto-episodes --feed-url https://example.com/podweaver/feed.xml
+```
+
+This uses temporary subscriptions and episode identities to check actual settings controls, bounded first selection, arrival order, duplicate prevention, queue removal, independent switches, the download cap, sharing a manual transfer, refill after a played marker, manual deletion, failed-transfer backoff, and backup compatibility. It downloads the shortest live enclosure twice under isolated identities and restores the original data and any pre-existing backup file. Reports and the settings screenshot are `auto-results.json` and `auto-settings.png`. No feedback is submitted. An interrupted run is restored on the next test-build launch.
 
 `PODCOLD_DEBUG=1` signs only the test app executable with `get-task-allow` for debugging. `PODCOLD_DEVICE_TESTING=1` compiles the test runner; it runs only with the explicit `--podcold-device-test` launch argument. Both are off by default. Switching test mode invalidates cached objects. The `device_tested` field produced by static IPA verification stays false: the separate device-test report is the runtime evidence.
 
