@@ -1,6 +1,6 @@
 import UIKit
 
-class EpisodeDetailVC: UIViewController {
+class EpisodeDetailVC: UIViewController, UITextViewDelegate {
     private let episode: Episode
     private let podcast: Podcast
     private var downloadBtn: UIButton!
@@ -111,24 +111,35 @@ class EpisodeDetailVC: UIViewController {
             scrollView.addSubview(sep)
             y += 12
 
-            let descLabel = UILabel()
-            descLabel.textColor = UIColor(white: 0.75, alpha: 1)
-            descLabel.backgroundColor = .clear
-            descLabel.font = UIFont.systemFont(ofSize: 13)
-            descLabel.numberOfLines = 0
-            descLabel.frame = CGRect(x: 20, y: y, width: w - 40, height: 0)
-            scrollView.addSubview(descLabel)
+            let notes = UITextView(frame: CGRect(x: 20, y: y, width: w - 40, height: 1))
+            notes.accessibilityIdentifier = "episode-notes"
+            notes.backgroundColor = .clear
+            notes.isEditable = false
+            notes.isSelectable = true
+            notes.isScrollEnabled = false
+            notes.textContainerInset = .zero
+            notes.textContainer.lineFragmentPadding = 0
+            notes.dataDetectorTypes = .link
+            notes.linkTextAttributes = [.foregroundColor: EpisodeDetailVC.purple,
+                                        .underlineStyle: NSUnderlineStyle.single.rawValue]
+            notes.delegate = self
+            scrollView.addSubview(notes)
 
             let labelY = y
             let capturedW = w
             let summary = episode.summary
+            let feedURL = podcast.feedUrl
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor(white: 0.75, alpha: 1)]
             DispatchQueue(label: "com.podcold.misc").async {
-                let text = EpisodeDetailVC.stripHTML(summary)
-                DispatchQueue.main.async { [weak descLabel, weak scrollView] in
-                    guard let lbl = descLabel, let sv = scrollView else { return }
-                    lbl.text = text
-                    lbl.sizeToFit()
-                    sv.contentSize = CGSize(width: capturedW, height: labelY + lbl.frame.height + 16 + 70)
+                let text = NSMutableAttributedString(attributedString: EpisodeDetailVC.renderNotes(summary, baseURL: feedURL))
+                text.addAttributes(attributes, range: NSRange(location: 0, length: text.length))
+                DispatchQueue.main.async { [weak notes, weak scrollView] in
+                    guard let notes = notes, let sv = scrollView else { return }
+                    notes.attributedText = text
+                    let size = notes.sizeThatFits(CGSize(width: capturedW - 40, height: CGFloat.greatestFiniteMagnitude))
+                    notes.frame.size.height = ceil(size.height)
+                    sv.contentSize = CGSize(width: capturedW, height: labelY + notes.frame.height + 16 + 70)
                 }
             }
         }
@@ -204,24 +215,79 @@ class EpisodeDetailVC: UIViewController {
     // lives entirely in the <p>/<br>/<li> tags. Dropping every tag therefore
     // collapsed the whole description into one run-on block, so block-level
     // tags are turned into line breaks before the rest are discarded.
-    private static func stripHTML(_ s: String) -> String {
-        var out = ""
-        var tag = ""
-        var inTag = false
-        for c in s {
-            if c == "<" {
-                inTag = true
-                tag = ""
-            } else if c == ">" && inTag {
-                inTag = false
-                out += breakFor(tag: tag)
-            } else if inTag {
+    // Keep labels and URL attributes together while decoding entities and
+    // normalizing paragraphs. No HTML, JavaScript or remote content is executed.
+    static func renderNotes(_ html: String, baseURL: String) -> NSAttributedString {
+        let output = NSMutableAttributedString(string: "")
+        var text = "", tag = "", inTag = false
+        var quote: Character?
+        var link: URL?
+        func flush() {
+            guard !text.isEmpty else { return }
+            var attributes: [NSAttributedString.Key: Any] = [:]
+            if let target = link { attributes[.link] = target }
+            output.append(NSAttributedString(string: decodeEntities(text), attributes: attributes))
+            text = ""
+        }
+        for c in html {
+            if !inTag {
+                if c == "<" { flush(); inTag = true; tag = ""; quote = nil }
+                else { text.append(c) }
+            } else if let activeQuote = quote {
                 tag.append(c)
-            } else {
-                out.append(c)
+                if c == activeQuote { quote = nil }
+            } else if c == "\"" || c == "'" {
+                quote = c; tag.append(c)
+            } else if c == ">" {
+                inTag = false
+                let name = tag.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                    .components(separatedBy: .whitespacesAndNewlines).first ?? ""
+                if name == "a" { link = anchorURL(tag, baseURL: baseURL) }
+                else if name == "/a" { link = nil }
+                output.append(NSAttributedString(string: breakFor(tag: tag)))
+            } else { tag.append(c) }
+        }
+        if inTag { text += "<" + tag }
+        flush()
+        // Replacing only whitespace preserves link ranges, including UTF-16
+        // offsets around emoji and typographic punctuation.
+        for (pattern, replacement) in [("\\r\\n?", "\n"), ("(?m)^[ \\t]+|[ \\t]+$", ""),
+                                       ("\n{3,}", "\n\n"), ("\\A\\s+|\\s+\\z", "")] {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                let matches = regex.matches(in: output.string, options: [], range: NSRange(location: 0, length: output.length))
+                for match in matches.reversed() { output.replaceCharacters(in: match.range, with: replacement) }
             }
         }
-        return collapse(decodeEntities(out))
+        return output
+    }
+
+    static func noteURL(_ raw: String, baseURL: String = "") -> URL? {
+        guard let url = URL(string: decodeEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines),
+                            relativeTo: URL(string: baseURL))?.absoluteURL,
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else { return nil }
+        return url
+    }
+
+    private static func anchorURL(_ tag: String, baseURL: String) -> URL? {
+        let pattern = "\\s+([\\w:-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let source = tag as NSString
+        for match in regex.matches(in: tag, options: [], range: NSRange(location: 0, length: source.length)) {
+            guard source.substring(with: match.range(at: 1)).lowercased() == "href" else { continue }
+            for group in 2..<match.numberOfRanges {
+                let range = match.range(at: group)
+                if range.location != NSNotFound { return noteURL(source.substring(with: range), baseURL: baseURL) }
+            }
+        }
+        return nil
+    }
+
+    // The original iOS 7 delegate method: the interaction-argument variant is iOS 10+.
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange) -> Bool {
+        guard let url = EpisodeDetailVC.noteURL(URL.absoluteString),
+              UIApplication.shared.openURL(url) else { return false }
+        return false  // Safari handles the URL; UITextView must not open it a second time.
     }
 
     // "" for inline tags (<a>, <em>, <strong>…), a line break for block ones.
@@ -284,19 +350,6 @@ class EpisodeDetailVC: UIViewController {
             }
         }
         return out
-    }
-
-    // Trim each line and allow at most one blank line between paragraphs.
-    private static func collapse(_ s: String) -> String {
-        let normalized = s.replacingOccurrences(of: "\r\n", with: "\n")
-                          .replacingOccurrences(of: "\r", with: "\n")
-        var lines: [String] = []
-        for raw in normalized.components(separatedBy: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty && (lines.last?.isEmpty ?? true) { continue }
-            lines.append(line)
-        }
-        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // Coming from the podcast's own list, pushing another one would stack

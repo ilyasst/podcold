@@ -318,6 +318,12 @@ class AudioPlayer: NSObject {
         }
     }
 
+    #if PODCOLD_DEVICE_TESTING
+    func waitForBackgroundWrites(_ completion: @escaping () -> Void) {
+        AudioPlayer.bgQueue.async { DispatchQueue.main.async(execute: completion) }
+    }
+    #endif
+
     func pause() {
         player?.pause()
         state = .paused

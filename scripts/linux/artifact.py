@@ -148,6 +148,8 @@ def verify(path):
             not any(symbol == '_objc_readClassPair' and flags & 0x40
                     for symbol, _, flags in app['symbols'])):
         raise ValueError('Missing libarclite legacy Objective-C runtime compatibility')
+    if b'textView:shouldInteractWithURL:inRange:\0' not in binaries[info['CFBundleExecutable']]:
+        raise ValueError('Missing iOS 7 episode-notes link delegate')
     if '@executable_path/Frameworks' not in app['rpaths']:
         raise ValueError('Missing bundled runtime search path')
     for symbol, kind, flags in app['symbols']:
@@ -157,7 +159,7 @@ def verify(path):
             if name in exports and symbol not in exports[name]:
                 raise ValueError('Legacy runtime lacks required symbol: ' + symbol)
     return {'architecture': 'armv7', 'minimum_ios': '7.0', 'bundle_identifier': info['CFBundleIdentifier'],
-            'runtime_libraries': len(parsed) - 1, 'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+            'runtime_libraries': len(parsed) - 1, 'notes_link_delegate': True, 'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(),
             'size_bytes': Path(path).stat().st_size, 'device_tested': False}
 
 

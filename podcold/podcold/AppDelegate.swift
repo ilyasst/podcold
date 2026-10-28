@@ -7,6 +7,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        #if PODCOLD_DEVICE_TESTING
+        DeviceNotesTest.restoreInterruptedTest()
+        #endif
         let nav = UINavigationController(rootViewController: HomeVC())
         nav.navigationBar.barStyle = .black
         nav.navigationBar.tintColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
@@ -28,6 +31,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if CommandLine.arguments.contains("--podcold-device-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 DeviceSmokeTest.run(navigation: nav)
+            }
+        }
+        if CommandLine.arguments.contains("--podcold-notes-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                DeviceNotesTest.run(navigation: nav)
             }
         }
         if CommandLine.arguments.contains("--podcold-feed-test") {
