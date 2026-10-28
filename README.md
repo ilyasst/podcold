@@ -36,6 +36,12 @@ Notes use a native, read-only iOS 7 text view. Labels, paragraphs, lists, HTML e
 
 Episode credits also preserve item-level `itunes:author`, Dublin Core creator, and Atom episode authors. The original author appears as a byline in episode details, as the Now Playing subtitle, and as the lock-screen artist. Saved episodes retain that credit; older saved records without it continue to load. Refresh the feed to obtain newly published author metadata. Podweaver’s notes separately identify the original podcast and author for players that ignore item-level authors.
 
+## Sleep timer
+
+On **Now Playing**, scroll below the speed control and tap **Sleep timer: Off**. Choose **15 minutes**, **30 minutes**, **60 minutes**, or **End of episode**. The button shows the remaining countdown or the end-of-episode choice. Open it again to replace the timer or choose **Turn off**; **Cancel** leaves the current setting alone.
+
+Timed stops use elapsed time, including pauses, and keep their deadline across episode changes. They pause audio and preserve your position. The end-of-episode option finishes the current episode without consuming the next queued episode; manually choosing a different episode cancels that option. Closing the player or restarting the app clears the timer. Timers belong to the audio player and can run during background audio with the screen locked. No background polling runs when the timer is off.
+
 ## Physical-device search test
 
 Install `ideviceinstaller` and `libimobiledevice-utils` on the Linux host, pair the unlocked iPod, and mount Apple's signed iOS 7.1 developer image with `ideviceimagemounter`. A mounted developer image enables screenshots and launching; it is not installed by the build script.
@@ -65,6 +71,14 @@ python3 scripts/test-device.py --install --notes-playback --feed-url https://exa
 Use your real Podweaver feed with a **Listened** link and an audio episode longer than 20 seconds. This opt-in scenario checks rendering fixtures and the actual text-view links, downloads the shortest suitable episode under a temporary identity, starts local playback through the Play button, and invokes the installed link delegate to open Safari. It checks original-author display in episode details, Now Playing and lock-screen metadata, and verifies that playback advances with the app in the background for 40 seconds. It never submits the feedback form. The downloaded test file, recents, progress and queue changes are restored afterward. An interrupted check is recovered on the next launch of a device-test build; the host runner attempts that recovery before returning.
 
 The local report is `.build-linux/device-test/notes-results.json`. `episode-notes.png` shows the native links; `notes-complete.png` captures the final Safari page. The separate feed scenario above verifies subscription entry and restores the original subscription list. See [device validation](docs/device-notes-validation.md) for the recorded scope.
+
+To test the sleep timer with the same temporary download and restoration:
+
+```bash
+python3 scripts/test-device.py --install --sleep-timer --feed-url https://example.com/podweaver/feed.xml
+```
+
+This checks the native menu, all three minute presets, Cancel/Turn off, stopping at the real end of an audio file with a queued episode, queue advancement after disabling the timer, and an accelerated eight-second deadline while Safari is in front. The report is `sleep-results.json`. The short deadline checks the same timer code as the presets; it is not a full 60-minute or screen-lock endurance test. The harness holds a temporary background task to report the result after audio pauses; the normal player uses its existing background-audio mode.
 
 `PODCOLD_DEBUG=1` signs only the test app executable with `get-task-allow` for debugging. `PODCOLD_DEVICE_TESTING=1` compiles the test runner; it runs only with the explicit `--podcold-device-test` launch argument. Both are off by default. Switching test mode invalidates cached objects. The `device_tested` field produced by static IPA verification stays false: the separate device-test report is the runtime evidence.
 

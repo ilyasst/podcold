@@ -11,6 +11,8 @@ enum DeviceNotesTest {
     private static var checks: [String: Any] = [:]
     private static var attempts = 0
     private static var finishing = false
+    private static var testingSleep = false
+    private static var backgroundTask = UIBackgroundTaskIdentifier.invalid
     private static let recoveryKey = "podcold_device_notes_restore"
 
     private static func views(_ root: UIView) -> [UIView] { [root] + root.subviews.flatMap { views($0) } }
@@ -33,7 +35,8 @@ enum DeviceNotesTest {
         return NSDictionary(dictionary: values).isEqual(to: restored) && missing.allSatisfy { defaults.object(forKey: $0) == nil }
     }
 
-    static func run(navigation: UINavigationController) {
+    static func run(navigation: UINavigationController, sleepTimer: Bool = false) {
+        testingSleep = sleepTimer
         self.navigation = navigation
         checks = [:]; finishing = false
         var feedURL = ""
@@ -135,12 +138,114 @@ enum DeviceNotesTest {
             checks["now_playing_author"] = nowAuthor?.text == episode?.author
             checks["lock_screen_author"] = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] as? String == episode?.author
             emit("playback_started")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { openFeedback() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if testingSleep { testSleepControls() } else { openFeedback() }
+            }
             return
         }
         attempts += 1
         if player.state == .failed || attempts >= 40 { finish("Downloaded audio did not start playing"); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pollPlayback() }
+    }
+
+    private static func testSleepControls() {
+        guard let screen = navigation?.topViewController as? NowPlayingVC,
+              let button = views(screen.view).first(where: { $0.accessibilityIdentifier == "sleep-timer" }) as? UIButton else {
+            finish("Sleep button missing"); return
+        }
+        if let scroll = button.superview?.superview as? UIScrollView {
+            scroll.scrollRectToVisible(button.convert(button.bounds, to: scroll), animated: false)
+        }
+        button.sendActions(for: .touchUpInside)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            let roots = UIApplication.shared.windows.flatMap { views($0) }
+            guard let sheet = roots.compactMap({ $0 as? UIActionSheet }).first(where: { $0.accessibilityIdentifier == "sleep-timer-menu" }) else {
+                finish("Sleep menu did not open"); return
+            }
+            emit("sleep_menu")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                let titles = (0..<sheet.numberOfButtons).compactMap { sheet.buttonTitle(at: $0) }
+                checks["sleep_menu_options"] = ["15 minutes", "30 minutes", "60 minutes", "End of episode", "Turn off", "Cancel"].allSatisfy { titles.contains($0) }
+                let player = AudioPlayer.shared
+                for minutes in [15, 30, 60] {
+                    if let index = titles.firstIndex(of: "\(minutes) minutes") {
+                        screen.actionSheet(sheet, clickedButtonAt: index)
+                        let remaining = player.sleepTimerRemaining ?? 0
+                        checks["sleep_\(minutes)_minutes"] = remaining > Double(minutes * 60 - 2) && remaining <= Double(minutes * 60)
+                    }
+                }
+                if let cancel = titles.firstIndex(of: "Cancel") {
+                    screen.actionSheet(sheet, clickedButtonAt: cancel)
+                    checks["sleep_cancel_keeps_timer"] = (player.sleepTimerRemaining ?? 0) > 3598
+                }
+                if let off = titles.firstIndex(of: "Turn off") { screen.actionSheet(sheet, clickedButtonAt: off) }
+                checks["sleep_off"] = !player.hasSleepTimer
+                if let end = titles.firstIndex(of: "End of episode") { screen.actionSheet(sheet, clickedButtonAt: end) }
+                checks["sleep_end_selected"] = player.sleepsAtEpisodeEnd && button.title(for: .normal) == "Sleep at end of episode"
+                sheet.dismiss(withClickedButtonIndex: sheet.cancelButtonIndex, animated: false)
+                // Isolate the user's real queue. Repeating this temporary episode also
+                // avoids leaving any additional episode's progress keys behind.
+                UserDefaults.standard.set([], forKey: PlayQueue.storageKey)
+                PlayQueue.shared.reload()
+                if let ep = episode { PlayQueue.shared.add(ep) }
+                player.seek(to: player.duration - 2)
+                attempts = 0
+                pollSleepEnd()
+            }
+        }
+    }
+
+    private static func pollSleepEnd() {
+        let player = AudioPlayer.shared
+        if player.state == .ended {
+            checks["sleep_end_preserves_queue"] = PlayQueue.shared.episodes.count == 1 && !player.hasSleepTimer
+            // Cancelling end-of-episode must restore ordinary queue advancement.
+            player.resume()
+            player.sleepAtEndOfEpisode()
+            player.cancelSleepTimer()
+            player.seek(to: player.duration - 2)
+            attempts = 0
+            pollSleepQueue()
+            return
+        }
+        attempts += 1
+        if attempts >= 15 { finish("End-of-episode timer did not stop audio"); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pollSleepEnd() }
+    }
+
+    private static func pollSleepQueue() {
+        let player = AudioPlayer.shared
+        if PlayQueue.shared.episodes.isEmpty && player.state == .playing && player.currentTime > 1 {
+            checks["sleep_cancel_restores_queue"] = !player.hasSleepTimer && player.currentTime < 20
+            // Use a short real deadline so the physical-device test does not take
+            // an hour. The menu presets above exercise the actual 15/30/60 values.
+            player.setSleepTimer(seconds: 8)
+            let remaining = player.sleepTimerRemaining ?? 0
+            if let ep = episode { player.play(episode: ep) }
+            checks["sleep_deadline_survives_episode_change"] = (player.sleepTimerRemaining ?? 0) <= remaining && player.hasSleepTimer
+            guard let screen = detail,
+                  let notes = views(screen.view).first(where: { $0.accessibilityIdentifier == "episode-notes" }) as? UITextView,
+                  let link = linkRuns(notes.attributedText).first(where: { $0.0 == "Listened" }) else {
+                finish("Feedback link missing for background timer test"); return
+            }
+            // After pausing, iOS may suspend the process. Keep the test harness
+            // alive just long enough to observe that pause and report the result.
+            backgroundTask = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+            emit("sleep_background")
+            _ = screen.textView(notes, shouldInteractWith: link.1, in: link.2)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+                checks["sleep_background_pause"] = UIApplication.shared.applicationState == .background && player.state == .paused && !player.hasSleepTimer
+                let position = player.currentTime
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    checks["sleep_position_preserved"] = position > 0 && abs(player.currentTime - position) < 1 && player.currentEpisode?.guid == episode?.guid
+                    finish(nil)
+                }
+            }
+            return
+        }
+        attempts += 1
+        if attempts >= 20 { finish("Queue did not advance after disabling sleep timer"); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pollSleepQueue() }
     }
 
     private static func openFeedback() {
@@ -193,10 +298,18 @@ enum DeviceNotesTest {
             let restored = restoreInterruptedTest()
             PlayQueue.shared.reload()
             checks["test_data_restored"] = restored && UserDefaults.standard.object(forKey: recoveryKey) == nil && episode?.localPath() == nil
-            let required = ["notes_validation", "native_links", "original_author_byline", "now_playing_author", "lock_screen_author", "download_progress_ui", "download_saved", "local_playback", "safari_background", "background_playback", "test_data_restored"]
+            var required = ["notes_validation", "native_links", "original_author_byline", "now_playing_author", "lock_screen_author", "download_progress_ui", "download_saved", "local_playback", "safari_background", "background_playback", "test_data_restored"]
+            if testingSleep {
+                required.removeAll { ["safari_background", "background_playback"].contains($0) }
+                required += ["sleep_menu_options", "sleep_15_minutes", "sleep_30_minutes", "sleep_60_minutes", "sleep_cancel_keeps_timer", "sleep_off", "sleep_end_selected", "sleep_end_preserves_queue", "sleep_cancel_restores_queue", "sleep_deadline_survives_episode_change", "sleep_background_pause", "sleep_position_preserved"]
+            }
             checks["passed"] = error == nil && required.allSatisfy { checks[$0] as? Bool == true }
             if let message = error { checks["error"] = message }
             emit("complete")
+            if backgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTask)
+                backgroundTask = .invalid
+            }
             navigation = nil; detail = nil; episode = nil
         }
     }

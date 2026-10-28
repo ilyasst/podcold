@@ -1,6 +1,6 @@
 import UIKit
 
-class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
+class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate, UIActionSheetDelegate {
     // The mini bar hides behind this screen. It used to discover that by polling
     // the navigation stack twice a second; now the screen simply says so.
     private(set) static var isOnScreen = false
@@ -15,6 +15,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     private let slider           = UISlider()
     private let currentTimeLabel = UILabel()
     private let remainingLabel   = UILabel()
+    private let sleepBtn         = UIButton(type: .custom)
     private let speedBtn         = UIButton(type: .custom)
     private let spinner          = UIActivityIndicatorView(style: .white)
     private let speeds: [Float]  = [1.0, 1.5, 2.0, 0.5]
@@ -59,6 +60,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         // The rate outlives this screen, so the button adopts it rather than
         // assuming 1x on every appearance.
         syncSpeedFromPlayer()
+        updateSleepButton()
     }
 
     private func setupUI() {
@@ -190,7 +192,15 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         updateSpeedBtn()
         speedBtn.addTarget(self, action: #selector(speedTapped), for: .touchUpInside)
         headerView.addSubview(speedBtn)
-        y += 42
+        y += 36
+
+        sleepBtn.frame = CGRect(x: 20, y: y, width: w - 40, height: 44)
+        sleepBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
+        sleepBtn.accessibilityIdentifier = "sleep-timer"
+        sleepBtn.addTarget(self, action: #selector(sleepTapped), for: .touchUpInside)
+        headerView.addSubview(sleepBtn)
+        updateSleepButton()
+        y += 52
 
         headerView.frame = CGRect(x: 0, y: 0, width: w, height: y)
         tableView.tableHeaderView = headerView
@@ -211,6 +221,8 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     // viewDidLoad, so pushing anything on top and coming back left a dead slider.
     private func observePlayer() {
         let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(updateSleepButton),
+                       name: .sleepTimerChanged, object: nil)
         nc.addObserver(self, selector: #selector(playerTimeChanged),
                        name: .playerTimeChanged, object: nil)
         nc.addObserver(self, selector: #selector(playerStateChanged),
@@ -299,6 +311,43 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         }
         speedBtn.setTitle(label, for: .normal)
         speedBtn.setTitleColor(s == 1.0 ? UIColor(white: 0.45, alpha: 1) : purple, for: .normal)
+    }
+
+    // MARK: - Sleep timer (UIActionSheet is available on iOS 7)
+
+    @objc private func updateSleepButton() {
+        let player = AudioPlayer.shared
+        let label: String
+        if let remaining = player.sleepTimerRemaining {
+            label = "Sleep in " + fmt(ceil(remaining))
+        } else if player.sleepsAtEpisodeEnd {
+            label = "Sleep at end of episode"
+        } else {
+            label = "Sleep timer: Off"
+        }
+        sleepBtn.setTitle(label, for: .normal)
+        sleepBtn.setTitleColor(player.hasSleepTimer
+            ? UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
+            : UIColor(white: 0.65, alpha: 1), for: .normal)
+    }
+
+    @objc private func sleepTapped() {
+        let sheet = UIActionSheet(title: "Sleep timer", delegate: self,
+                                  cancelButtonTitle: "Cancel", destructiveButtonTitle: nil,
+                                  otherButtonTitles: "15 minutes", "30 minutes", "60 minutes", "End of episode", "Turn off")
+        sheet.accessibilityIdentifier = "sleep-timer-menu"
+        sheet.show(in: view)
+    }
+
+    func actionSheet(_ actionSheet: UIActionSheet, clickedButtonAt buttonIndex: Int) {
+        switch actionSheet.buttonTitle(at: buttonIndex) {
+        case "15 minutes": AudioPlayer.shared.setSleepTimer(seconds: 15 * 60)
+        case "30 minutes": AudioPlayer.shared.setSleepTimer(seconds: 30 * 60)
+        case "60 minutes": AudioPlayer.shared.setSleepTimer(seconds: 60 * 60)
+        case "End of episode": AudioPlayer.shared.sleepAtEndOfEpisode()
+        case "Turn off": AudioPlayer.shared.cancelSleepTimer()
+        default: break
+        }
     }
 
     // MARK: - Queue

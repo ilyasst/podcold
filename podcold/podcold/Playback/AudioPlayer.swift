@@ -22,6 +22,7 @@ enum PlaybackState {
 // dead slider.
 extension Notification.Name {
     static let playerStateChanged   = Notification.Name("podcold.player.stateChanged")
+    static let sleepTimerChanged = Notification.Name("podcold.player.sleepTimerChanged")
     static let playerTimeChanged    = Notification.Name("podcold.player.timeChanged")
     static let playerEpisodeChanged = Notification.Name("podcold.player.episodeChanged")
     // Posted by NowPlayingVC so the mini bar can hide behind it without polling.
@@ -72,6 +73,58 @@ class AudioPlayer: NSObject {
 
     private var pendingSeek: Double = 0
     private var isStreaming = false
+    private var sleepTimer: Timer?
+    private var sleepDeadline: TimeInterval?
+    private var sleepEpisodeGUID: String?
+
+    var sleepTimerRemaining: TimeInterval? {
+        return sleepDeadline.map { max(0, $0 - ProcessInfo.processInfo.systemUptime) }
+    }
+    var sleepsAtEpisodeEnd: Bool { return sleepEpisodeGUID != nil }
+    var hasSleepTimer: Bool { return sleepDeadline != nil || sleepsAtEpisodeEnd }
+
+    // Elapsed time, including pauses, rather than playback time or wall-clock time.
+    // Background audio keeps the main run loop running while the screen is locked.
+    func setSleepTimer(seconds: TimeInterval) {
+        cancelSleepTimer()
+        guard currentEpisode != nil, seconds.isFinite, seconds > 0 else { return }
+        sleepDeadline = ProcessInfo.processInfo.systemUptime + seconds
+        let timer = Timer(timeInterval: 1, target: self,
+                          selector: #selector(checkSleepTimer), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        sleepTimer = timer
+        post(.sleepTimerChanged)
+    }
+
+    func sleepAtEndOfEpisode() {
+        cancelSleepTimer()
+        guard let ep = currentEpisode, state != .ended else { return }
+        sleepEpisodeGUID = ep.guid
+        post(.sleepTimerChanged)
+    }
+
+    func cancelSleepTimer() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepDeadline = nil
+        sleepEpisodeGUID = nil
+        post(.sleepTimerChanged)
+    }
+
+    // Also checked before starting/advancing audio in case a callback was delayed.
+    @discardableResult
+    @objc func checkSleepTimer() -> Bool {
+        guard let remaining = sleepTimerRemaining else { return false }
+        if remaining <= 0 {
+            cancelSleepTimer()
+            pause()
+            flushPosition()
+            return true
+        }
+        post(.sleepTimerChanged)
+        return false
+    }
+
     private var watchdog: Timer?
     private static let loadTimeout: TimeInterval = 25
     private var progressTick = 0  // counts 1-s ticks; used to throttle writes
@@ -109,6 +162,7 @@ class AudioPlayer: NSObject {
     // MARK: - Transport
 
     func play(episode: Episode) {
+        if let guid = sleepEpisodeGUID, guid != episode.guid { cancelSleepTimer() }
         addToRecents(episode)
         // reset(), not stop(): stop() announces an empty player, and the Now Playing
         // screen closes itself on that — a queue advance would pop the screen it is
@@ -227,12 +281,13 @@ class AudioPlayer: NSObject {
         player?.seek(to: CMTimeMakeWithSeconds(target, preferredTimescale: 1)) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                if shouldRoll { self.startRolling() } else { self.state = .paused }
+                if shouldRoll && self.state != .paused { self.startRolling() } else { self.state = .paused }
             }
         }
     }
 
     private func startRolling() {
+        guard !checkSleepTimer(), state != .paused else { return }
         player?.play()
         player?.rate = playbackRate
         state = .playing
@@ -268,7 +323,11 @@ class AudioPlayer: NSObject {
                     guard let self = self,
                           self.currentEpisode?.guid == episode.guid else { return }
                     self.downloadProgress = -1
-                    if success { self.play(episode: episode) } else { self.state = .failed }
+                    if success {
+                        let wasPaused = self.state == .paused
+                        self.play(episode: episode)
+                        if wasPaused { self.pause() }
+                    } else { self.state = .failed }
                 }
             }
         )
@@ -330,6 +389,7 @@ class AudioPlayer: NSObject {
     }
 
     func resume() {
+        guard !checkSleepTimer() else { return }
         // An AVPlayer parked at the end of its item ignores play(), so the only
         // meaningful "play" there is to start over.
         if state == .ended { replay(); return }
@@ -388,6 +448,7 @@ class AudioPlayer: NSObject {
     }
 
     func stop() {
+        cancelSleepTimer()
         reset()
         post(.playerEpisodeChanged)
     }
@@ -425,13 +486,19 @@ class AudioPlayer: NSObject {
     }
 
     private func finishCurrent() {
+        let sleepHere = sleepEpisodeGUID == currentEpisode?.guid && sleepEpisodeGUID != nil
+        // An end notification can already be queued when a deadline pauses audio.
+        // That delayed notification must not start the next episode afterward.
+        let wasPaused = state == .paused
+        let deadlineExpired = checkSleepTimer()
+        if sleepHere { cancelSleepTimer() }
         if let ep = currentEpisode {
             ep.savePosition(0)
             Episode.markPlayed(guid: ep.guid)
             ep.autoDeleteIfEnabled()
         }
         // Queued episodes take over instead of tearing the player down.
-        if let next = PlayQueue.shared.next() {
+        if !sleepHere && !deadlineExpired && !wasPaused, let next = PlayQueue.shared.next() {
             // The position was just reset to 0 — drop the reference so the stop()
             // inside play() doesn't flush the near-end time straight back over it
             // and resurrect the episode in Continue Listening.

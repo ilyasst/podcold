@@ -38,6 +38,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 DeviceNotesTest.run(navigation: nav)
             }
         }
+        if CommandLine.arguments.contains("--podcold-sleep-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                DeviceNotesTest.run(navigation: nav, sleepTimer: true)
+            }
+        }
         if CommandLine.arguments.contains("--podcold-feed-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 DeviceFeedTest.run(navigation: nav)
@@ -64,6 +69,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     override var canBecomeFirstResponder: Bool { return true }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        AudioPlayer.shared.checkSleepTimer()
         becomeFirstResponder()
         application.beginReceivingRemoteControlEvents()
     }

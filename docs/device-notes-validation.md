@@ -18,3 +18,11 @@ Local reports and screenshots are under `.build-linux/device-test/` and are inte
 ## Original-author follow-up
 
 The device checks were repeated after adding per-episode author support. RSS item author precedence, Atom entry authors, persisted episode authors, and backward compatibility with old saved episodes passed. The live episode screen showed its original creator in the byline, Now Playing showed the same creator, and `MPMediaItemPropertyArtist` carried that value for the lock screen. Podweaver’s live RSS also included explicit original podcast and author lines in the notes. Existing episode identities and listening progress were preserved.
+
+## Sleep-timer follow-up
+
+The native iOS 7 sleep menu exposes 15, 30, and 60 minutes, End of episode, Turn off, and Cancel. Physical-device checks verified every preset, replacement, cancellation, and the active end-of-episode label. Seeking the downloaded audio near its actual end verified that End of episode prevents queue advancement and preserves the queued item; disabling that option allows normal queue advancement again.
+
+An accelerated eight-second deadline used the same timer path as the minute presets. The deadline survived reloading the player, paused audio with Safari in front, cleared itself, and preserved a nonzero playback position without further advancement. A temporary background task kept only the test reporter alive after audio paused. The normal build has no such task. The temporary download, played markers, recents, queue, and progress were restored afterward. This does not constitute a full 60-minute or locked-screen endurance test.
+
+Run `scripts/test-device.py --sleep-timer --feed-url <public-podweaver-feed>` with a device-test build. `sleep-results.json` records the checks, and `sleep-menu.png` captures the native options. Regular builds exclude this scenario.
