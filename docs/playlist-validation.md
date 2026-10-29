@@ -27,4 +27,12 @@ Actual device launches exposed additional compatibility requirements: bundled Sw
 
 The standalone playlist scenario passed on this iOS 6.1.6 iPod. All 22 boolean results, including the overall result, were true. The check covered 30 warm-cache Downloads reloads, deletion, independent automatic adding rules, capacity and backlog order, native settings controls, backup restoration, native notes links, action-sheet adding and two three-second local audio files completing in order through AVPlayer. Original preferences were restored and temporary media removed. Local evidence is `.build-linux/device-test/playlist-results.json`, with `playlist_downloads.png`, `playlist_ready.png` and `playlist-complete.png`.
 
-The original iPod that exhibited the reported Downloads crash was unavailable. The cached-artwork regression has been exercised on this newly connected device; its original crash report has not been inspected. This scenario uses local media and does not by itself verify live network downloads or long listening sessions on iOS 6.
+The original iPod that exhibited the reported Downloads crash was unavailable. The cached-artwork regression has been exercised on this newly connected device; its original crash report has not been inspected. This playlist scenario uses local media. A separate automatic-download check on the same device is recorded below; long listening sessions remain outside the validation scope.
+
+## Automatic downloads on iOS 6
+
+On 2026-10-29 the existing automatic-episode scenario passed on the same jailbroken iPod touch 4 running iOS 6.1.6, using source commit `8cf3c91`. It fetched the shortest suitable episode from the live public Podweaver feed under temporary episode identities. All 23 boolean results, including the overall result, were true.
+
+The check exercised native settings, independent queue/download switches, the download limit, automatic file completion, adding a completed download to the playlist with new-episode adding disabled, sharing a transfer with a manual request, holding at the limit, refilling after a played marker, honoring a manual deletion, failure backoff and backup compatibility. It restored subscriptions, settings, history and queue state and removed its temporary media. The report is `.build-linux/device-test/auto-results.json`; the test build is replaced by the normal build afterward.
+
+No application change was required for this check. The earlier zero-download snapshot had been taken while a large episode was incomplete; it did not establish a scheduler failure. Automatic feed checks and new transfers start while the app is active. This does not establish reliable downloading while suspended, with the screen locked or after the app is force-quit.
