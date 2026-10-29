@@ -74,7 +74,7 @@ enum DeviceAutoEpisodeTest {
         }
         let keys = [Podcast.subscriptionsKey, PlayQueue.storageKey, Episode.downloadsKey, Episode.recentsKey, Episode.playedGuidsKey,
                     AutoEpisodeManager.queueKey, AutoEpisodeManager.downloadKey, AutoEpisodeManager.limitKey, AutoEpisodeManager.stateKey,
-                    UpNextManager.maxNewEpisodesKey, "latest_episode_cache"]
+                    UpNextManager.maxNewEpisodesKey, "latest_episode_cache", PlayQueue.limitKey, PlayQueue.pendingKey, PlayQueue.downloadedKey]
         let defaults = UserDefaults.standard
         var values: [String: Any] = [:], missing: [String] = []
         for key in keys {
@@ -88,6 +88,9 @@ enum DeviceAutoEpisodeTest {
         defaults.set([], forKey: Episode.downloadsKey)
         defaults.set([], forKey: Episode.playedGuidsKey)
         PlayQueue.shared.reload()
+        defaults.removeObject(forKey: PlayQueue.pendingKey)
+        PlayQueue.maximumSize = 50
+        PlayQueue.addDownloads = false
         AutoEpisodeManager.queueEnabled = true
         AutoEpisodeManager.downloadEnabled = false
         AutoEpisodeManager.downloadLimit = 1
@@ -98,26 +101,31 @@ enum DeviceAutoEpisodeTest {
 
     private static func testSettings() {
         guard let nav = navigation else { finish("Navigation missing"); return }
-        let screen = SettingsVC()
-        nav.pushViewController(screen, animated: false)
+        let options = PlaylistSettingsVC()
+        nav.pushViewController(options, animated: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            guard let table = screen.view.subviews.compactMap({ $0 as? UITableView }).first else { finish("Settings table missing"); return }
-            table.scrollToRow(at: IndexPath(row: 2, section: 1), at: .middle, animated: false)
+            let queue = options.tableView.cellForRow(at: IndexPath(row: 0, section: 0))?.accessoryView as? UISwitch
+            checks["playlist_queue_control"] = queue?.accessibilityIdentifier == "auto-queue"
+            queue?.isOn = false; queue?.sendActions(for: .valueChanged)
+            checks["queue_switch_persists"] = !AutoEpisodeManager.queueEnabled
+            queue?.isOn = true; queue?.sendActions(for: .valueChanged)
+            let screen = SettingsVC()
+            nav.pushViewController(screen, animated: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                let queue = table.cellForRow(at: IndexPath(row: 0, section: 1))?.accessoryView as? UISwitch
-                let download = table.cellForRow(at: IndexPath(row: 1, section: 1))?.accessoryView as? UISwitch
-                let limit = table.cellForRow(at: IndexPath(row: 2, section: 1))?.accessoryView as? UIStepper
-                checks["settings_controls"] = queue?.accessibilityIdentifier == "auto-queue" && download?.accessibilityIdentifier == "auto-download" && limit?.accessibilityIdentifier == "auto-download-limit"
-                queue?.isOn = false; queue?.sendActions(for: .valueChanged)
-                checks["queue_switch_persists"] = !AutoEpisodeManager.queueEnabled
-                queue?.isOn = true; queue?.sendActions(for: .valueChanged)
-                download?.isOn = true; download?.sendActions(for: .valueChanged)
-                checks["download_switch_persists"] = AutoEpisodeManager.downloadEnabled
-                download?.isOn = false; download?.sendActions(for: .valueChanged)
-                limit?.value = 2; limit?.sendActions(for: .valueChanged)
-                checks["limit_control_persists"] = AutoEpisodeManager.downloadLimit == 2
-                emit("auto_settings")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { testArrivals() }
+                guard let table = screen.view.subviews.compactMap({ $0 as? UITableView }).first else { finish("Settings table missing"); return }
+                table.scrollToRow(at: IndexPath(row: 2, section: 1), at: .middle, animated: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    let download = table.cellForRow(at: IndexPath(row: 1, section: 1))?.accessoryView as? UISwitch
+                    let limit = table.cellForRow(at: IndexPath(row: 2, section: 1))?.accessoryView as? UIStepper
+                    checks["settings_controls"] = checks["playlist_queue_control"] as? Bool == true && download?.accessibilityIdentifier == "auto-download" && limit?.accessibilityIdentifier == "auto-download-limit"
+                    download?.isOn = true; download?.sendActions(for: .valueChanged)
+                    checks["download_switch_persists"] = AutoEpisodeManager.downloadEnabled
+                    download?.isOn = false; download?.sendActions(for: .valueChanged)
+                    limit?.value = 2; limit?.sendActions(for: .valueChanged)
+                    checks["limit_control_persists"] = AutoEpisodeManager.downloadLimit == 2
+                    emit("auto_settings")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { testArrivals() }
+                }
             }
         }
     }
@@ -152,6 +160,7 @@ enum DeviceAutoEpisodeTest {
         let manager = AutoEpisodeManager.shared
         // Exercise disabled queue and enabled downloads independently.
         AutoEpisodeManager.queueEnabled = false
+        PlayQueue.addDownloads = true
         AutoEpisodeManager.downloadEnabled = true
         AutoEpisodeManager.downloadLimit = 1
         manager.observe(feedURL: podcast.feedUrl, episodes: Array(fixtures[0...7].reversed()))
@@ -166,6 +175,7 @@ enum DeviceAutoEpisodeTest {
         if !AutoEpisodeManager.shared.isDownloadingForTest && fixtures[6].localPath() != nil {
             checks["automatic_download_saved"] = Episode.loadDownloads().contains(where: { $0.guid == fixtures[6].guid })
             checks["manual_download_joins"] = manualJoined
+            checks["download_completion_adds_to_playlist"] = PlayQueue.shared.contains(guid: fixtures[6].guid)
             checks["download_cap_holds"] = fixtures[7].localPath() == nil
             // Turning downloading off must prevent a newly freed slot from starting.
             AutoEpisodeManager.downloadEnabled = false
@@ -254,7 +264,7 @@ enum DeviceAutoEpisodeTest {
             let restored = restoreInterruptedTest()
             PlayQueue.shared.reload()
             checks["test_data_restored"] = restored && fixtures.allSatisfy { $0.localPath() == nil }
-            let required = ["settings_controls", "queue_switch_persists", "download_switch_persists", "limit_control_persists", "first_refresh_bounded_and_ordered", "refresh_deduplicates_and_appends", "removed_row_stays_removed", "queue_table_delete", "download_without_queue", "automatic_download_saved", "manual_download_joins", "download_cap_holds", "disabled_download_stays_idle", "played_episode_refills_slot", "deleted_download_stays_deleted", "failed_download_backs_off", "failed_download_not_retried_immediately", "backup_restores_settings_and_history", "legacy_backup_compatible", "test_data_restored"]
+            let required = ["settings_controls", "queue_switch_persists", "download_switch_persists", "limit_control_persists", "first_refresh_bounded_and_ordered", "refresh_deduplicates_and_appends", "removed_row_stays_removed", "queue_table_delete", "download_without_queue", "automatic_download_saved", "manual_download_joins", "download_completion_adds_to_playlist", "download_cap_holds", "disabled_download_stays_idle", "played_episode_refills_slot", "deleted_download_stays_deleted", "failed_download_backs_off", "failed_download_not_retried_immediately", "backup_restores_settings_and_history", "legacy_backup_compatible", "test_data_restored"]
             checks["passed"] = error == nil && required.allSatisfy { checks[$0] as? Bool == true }
             if let message = error { checks["error"] = message }
             emit("complete")

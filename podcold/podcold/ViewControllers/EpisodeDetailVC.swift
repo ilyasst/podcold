@@ -17,6 +17,7 @@ class EpisodeDetailVC: UIViewController, UITextViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        NotificationCenter.default.addObserver(self, selector: #selector(updateQueueButton), name: .playQueueChanged, object: nil)
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
 
         let w = UIScreen.main.bounds.width
@@ -123,36 +124,43 @@ class EpisodeDetailVC: UIViewController, UITextViewDelegate {
             scrollView.addSubview(sep)
             y += 12
 
-            let notes = UITextView(frame: CGRect(x: 20, y: y, width: w - 40, height: 1))
-            notes.accessibilityIdentifier = "episode-notes"
-            notes.backgroundColor = .clear
-            notes.isEditable = false
-            notes.isSelectable = true
-            notes.isScrollEnabled = false
-            notes.textContainerInset = .zero
-            notes.textContainer.lineFragmentPadding = 0
-            notes.dataDetectorTypes = .link
-            notes.linkTextAttributes = [.foregroundColor: EpisodeDetailVC.purple,
-                                        .underlineStyle: NSUnderlineStyle.single.rawValue]
-            notes.delegate = self
-            scrollView.addSubview(notes)
+            if #available(iOS 7.0, *) {
+                let notes = UITextView(frame: CGRect(x: 20, y: y, width: w - 40, height: 1))
+                notes.accessibilityIdentifier = "episode-notes"
+                notes.backgroundColor = .clear
+                notes.isEditable = false
+                notes.isSelectable = true
+                notes.isScrollEnabled = false
+                notes.textContainerInset = .zero
+                notes.textContainer.lineFragmentPadding = 0
+                notes.dataDetectorTypes = .link
+                notes.linkTextAttributes = [.foregroundColor: EpisodeDetailVC.purple,
+                                            .underlineStyle: NSUnderlineStyle.single.rawValue]
+                notes.delegate = self
+                scrollView.addSubview(notes)
 
-            let labelY = y
-            let capturedW = w
-            let summary = episode.summary
-            let feedURL = podcast.feedUrl
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor(white: 0.75, alpha: 1)]
-            DispatchQueue(label: "com.podcold.misc").async {
-                let text = NSMutableAttributedString(attributedString: EpisodeDetailVC.renderNotes(summary, baseURL: feedURL))
-                text.addAttributes(attributes, range: NSRange(location: 0, length: text.length))
-                DispatchQueue.main.async { [weak notes, weak scrollView] in
-                    guard let notes = notes, let sv = scrollView else { return }
-                    notes.attributedText = text
-                    let size = notes.sizeThatFits(CGSize(width: capturedW - 40, height: CGFloat.greatestFiniteMagnitude))
-                    notes.frame.size.height = ceil(size.height)
-                    sv.contentSize = CGSize(width: capturedW, height: labelY + notes.frame.height + 16 + 70)
+                let labelY = y
+                let capturedW = w
+                let summary = episode.summary
+                let feedURL = podcast.feedUrl
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor(white: 0.75, alpha: 1)]
+                DispatchQueue(label: "com.podcold.misc").async {
+                    let text = NSMutableAttributedString(attributedString: EpisodeDetailVC.renderNotes(summary, baseURL: feedURL))
+                    text.addAttributes(attributes, range: NSRange(location: 0, length: text.length))
+                    DispatchQueue.main.async { [weak notes, weak scrollView] in
+                        guard let notes = notes, let sv = scrollView else { return }
+                        notes.attributedText = text
+                        let size = notes.sizeThatFits(CGSize(width: capturedW - 40, height: CGFloat.greatestFiniteMagnitude))
+                        notes.frame.size.height = ceil(size.height)
+                        sv.contentSize = CGSize(width: capturedW, height: labelY + notes.frame.height + 16 + 70)
+                    }
                 }
+            } else {
+                let notes = LegacyEpisodeNotesView(html: episode.summary, baseURL: podcast.feedUrl, width: w - 40)
+                notes.frame.origin = CGPoint(x: 20, y: y)
+                scrollView.addSubview(notes)
+                y += notes.bounds.height
             }
         }
 
@@ -178,14 +186,17 @@ class EpisodeDetailVC: UIViewController, UITextViewDelegate {
         }
     }
 
-    private func updateQueueButton() {
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func updateQueueButton() {
+        guard queueBtn != nil else { return }
         let purple = EpisodeDetailVC.purple
         if PlayQueue.shared.contains(guid: episode.guid) {
-            queueBtn.setTitle("Queued", for: .normal)
+            queueBtn.setTitle("In playlist", for: .normal)
             queueBtn.setTitleColor(UIColor(white: 0.45, alpha: 1), for: .normal)
             queueBtn.layer.borderColor = UIColor(white: 0.25, alpha: 1).cgColor
         } else {
-            queueBtn.setTitle("+ Queue", for: .normal)
+            queueBtn.setTitle("+ Playlist", for: .normal)
             queueBtn.setTitleColor(purple, for: .normal)
             queueBtn.layer.borderColor = purple.cgColor
         }
@@ -195,7 +206,7 @@ class EpisodeDetailVC: UIViewController, UITextViewDelegate {
         if PlayQueue.shared.contains(guid: episode.guid) {
             PlayQueue.shared.remove(guid: episode.guid)
         } else {
-            PlayQueue.shared.add(episode)
+            if !PlayQueue.shared.add(episode) { EpisodePlaylistActions.showCannotAdd(episode) }
         }
         updateQueueButton()
     }
@@ -237,7 +248,7 @@ class EpisodeDetailVC: UIViewController, UITextViewDelegate {
         func flush() {
             guard !text.isEmpty else { return }
             var attributes: [NSAttributedString.Key: Any] = [:]
-            if let target = link { attributes[.link] = target }
+            if let target = link { attributes[NSAttributedString.Key("NSLink")] = target }
             output.append(NSAttributedString(string: decodeEntities(text), attributes: attributes))
             text = ""
         }

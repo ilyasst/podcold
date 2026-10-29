@@ -125,6 +125,12 @@ class AsyncImageView: UIImageView {
         fetch(url: url, targetPx: targetPx, completion: completion)
     }
 
+    #if PODCOLD_DEVICE_TESTING
+    static func primeCellForTest(url: String, image: UIImage) {
+        cache.setObject(image, forKey: cacheKey(url: url, targetPx: bucket(120)))
+    }
+    #endif
+
     // MARK: - Shared pipeline: disk → network → decode → cache both layers
 
     private static func fetch(url: String, targetPx: CGFloat, completion: @escaping (UIImage) -> Void) {

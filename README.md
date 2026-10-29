@@ -4,7 +4,7 @@ Fork of [RousseAddict/podcold](https://github.com/RousseAddict/podcold), a podca
 
 ## Linux ARMv7 build
 
-The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting test app targets iOS 7.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. The fork's application sources under `podcold/` are compiled directly.
+The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting app targets iOS 6.0 and later and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. The fork's application sources under `podcold/` are compiled directly.
 
 Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, directory search, and adding an RSS feed by URL have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. Native description links, a real 2.8 MB episode download, local playback, and 40 seconds of continued playback while Safari is in front have also passed physical-device checks. Safari loaded the public Podweaver confirmation page; no feedback was submitted.
 
@@ -32,20 +32,36 @@ Choose **Add Feed URL** on the empty home screen, or **Search → Add URL** at a
 
 Episode descriptions preserve tappable HTTP/HTTPS links, including Podweaver’s **More like this**, **Pass on this show**, **Undo**, and **Listened**. Tap a link to open its public page in Safari. Audio can continue while you confirm feedback, then return to Podcold. Opening a page does not submit a preference. Cached feedback links show the current preference on the public page; refreshed feed notes show updated status.
 
-Notes use a native, read-only iOS 7 text view. Labels, paragraphs, lists, HTML entities and relative links are retained. The app does not execute description HTML or JavaScript. Non-web URL schemes are not opened. No embedded browser or new runtime dependency is added.
+Notes use a native, read-only text view on iOS 7 and later. On iOS 6, native labels show the text and native buttons open the parsed web links. Labels, paragraphs, lists, HTML entities and relative links are retained. The app does not execute description HTML or JavaScript. Non-web URL schemes are not opened. No embedded browser or new runtime dependency is added.
 
 Episode credits also preserve item-level `itunes:author`, Dublin Core creator, and Atom episode authors. The original author appears as a byline in episode details, as the Now Playing subtitle, and as the lock-screen artist. Saved episodes retain that credit; older saved records without it continue to load. Refresh the feed to obtain newly published author metadata. Podweaver’s notes separately identify the original podcast and author for players that ignore item-level authors.
 
-## Automatic queue and downloads
+## Playlist
+
+Tap **Playlist** at the top left of Home. This is the existing saved queue, with a dedicated screen: **Play playlist** starts its first episode and playback continues through the remaining episodes in order. It resumes an already paused episode. Tap a row for episode details, swipe to remove it, or use **Edit** to drag rows into a different order. Downloads remains accessible as a button at the top of Home.
+
+Hold an episode in a podcast's episode list or in Downloads to **Add to playlist** or **Remove from playlist**. Episode details also has a **+ Playlist** button. Removing a playlist entry keeps its downloaded file.
+
+Choose **Playlist → Options**, or **Settings → Automatic Episodes → Playlist Options**:
+
+- **Add new episodes** adds new arrivals when subscribed feeds refresh.
+- **Add new downloads** adds an episode when its download finishes, including manual downloads. Turn off the first switch and keep this one on for a playlist filled by downloads only.
+- **Maximum episodes** sets a limit of 1–200 waiting episodes (default **50**). Lowering it preserves existing entries. Manual additions show a message when full; automatic additions wait for room in a bounded, persistent backlog of up to 200 episodes. Waiting additions refill in order as episodes leave the playlist.
+
+Both adding rules default to **on** and apply to future arrivals. Played episodes and the episode currently playing are excluded from automatic adding. Playlist entries, order, options and waiting additions are included in backups.
+
+The Downloads screen now applies artwork directly to the requested cell. Cached images can complete inline; asking the table to retrieve that same row from inside its data-source callback caused recursive row creation and an intermittent crash. Reused cells are checked by episode identity.
+
+## Automatic downloads
 
 Open **Settings → Automatic Episodes**:
 
-- **Add new episodes to queue** appends new arrivals to Up Next, oldest first within each feed refresh. It does not start playback.
+- **Playlist Options** opens the automatic adding switches and the playlist size limit. New arrivals enter oldest first within each feed refresh.
 - **Auto download episodes** downloads arrivals one at a time. This switch works independently of queueing.
 - **Auto download limit** keeps 1–20 automatic, unplayed downloads ready across all subscriptions (default **3**). It refills as you finish episodes. Manual downloads do not consume this allowance. Lowering the limit keeps existing files; turning downloading off lets an already-started transfer finish.
 - **Check feeds now** requests a fresh check immediately.
 
-Queueing and downloading default to **on**. A feed’s first successful check considers only its **Max new episodes** window (default 3), then remembers the identities in the fetched page. Later checks append newly seen episodes once. The window limits initial selection, rather than repeatedly walking through the back catalogue. Played/current episodes are excluded. Clearing the home-screen cache, relaunching, or removing a queued row does not re-add it. A manually deleted automatic download stays deleted.
+Automatic playlist adding and downloading default to **on**. A feed’s first successful check considers only its **Max new episodes** window (default 3), then remembers the identities in the fetched page. Later checks append newly seen episodes once. The window limits initial selection, rather than repeatedly walking through the back catalogue. Played/current episodes are excluded. Clearing the home-screen cache, relaunching, or removing a queued row does not re-add it. A manually deleted automatic download stays deleted.
 
 Feed checks run on opening and at the existing 45-minute refresh interval while the app is active. This legacy build does not schedule checks while closed or suspended. Pending downloads and failed-transfer retry times persist; interrupted downloads can restart when the app returns. Failed transfers wait at least 15 minutes before retrying. No new network dependency or thread-per-episode worker is added. Manual and automatic requests for the same episode share one transfer.
 
@@ -59,7 +75,7 @@ Timed stops use elapsed time, including pauses, and keep their deadline across e
 
 ## Physical-device search test
 
-Install `ideviceinstaller` and `libimobiledevice-utils` on the Linux host, pair the unlocked iPod, and mount Apple's signed iOS 7.1 developer image with `ideviceimagemounter`. A mounted developer image enables screenshots and launching; it is not installed by the build script.
+Install `ideviceinstaller` and `libimobiledevice-utils` on the Linux host, pair the unlocked iPod, and mount Apple's signed developer image matching its iOS version with `ideviceimagemounter`. A mounted developer image enables screenshots and launching; it is not installed by the build script.
 
 ```bash
 PODCOLD_DEBUG=1 PODCOLD_DEVICE_TESTING=1 ./scripts/build-linux.sh
@@ -103,6 +119,22 @@ python3 scripts/test-device.py --install --auto-episodes --feed-url https://exam
 
 This uses temporary subscriptions and episode identities to check actual settings controls, bounded first selection, arrival order, duplicate prevention, queue removal, independent switches, the download cap, sharing a manual transfer, refill after a played marker, manual deletion, failed-transfer backoff, and backup compatibility. It downloads the shortest live enclosure twice under isolated identities and restores the original data and any pre-existing backup file. Reports and the settings screenshot are `auto-results.json` and `auto-settings.png`. No feedback is submitted. An interrupted run is restored on the next test-build launch.
 
+To check playlist behavior and the cached-artwork crash on a jailbroken device:
+
+```bash
+python3 scripts/test-device.py --device-model iPod4,1 --install --playlist
+```
+
+This standalone scenario uses short local silent WAV files and a primed artwork cache. It exercises repeated Downloads reloads, deletion, native playlist options, action-sheet adding, persistent limits/backlog/order, notes compatibility, backup restoration, and real AVPlayer advancement. It preserves the original preferences and removes temporary files. Its report is `playlist-results.json`. This new scenario has been compiled; it has not yet run on hardware. The connected iOS 6.1.6 iPod rejected installation with `ApplicationVerificationFailed` and was confirmed to be unjailbroken. Use AppSync on a jailbroken device or a valid Apple development signing setup to install the ad hoc IPA. The previously tested jailbroken iOS 7 iPod was unavailable during this change.
+
+Headless checks compile the actual persistent playlist, episode, podcast and backup models with small UIKit-free collaborators. They also stress the iOS 6 atomic compatibility implementation with concurrent unaligned increments:
+
+```bash
+bash scripts/test-playlist-models.sh
+```
+
+The test container extends the existing build image; it adds no host packages or app dependency. See [playlist validation](docs/playlist-validation.md) for the current verification scope.
+
 `PODCOLD_DEBUG=1` signs only the test app executable with `get-task-allow` for debugging. `PODCOLD_DEVICE_TESTING=1` compiles the test runner; it runs only with the explicit `--podcold-device-test` launch argument. Both are off by default. Switching test mode invalidates cached objects. The `device_tested` field produced by static IPA verification stays false: the separate device-test report is the runtime evidence.
 
 For stack inspection with the bundled Linux LLDB, `scripts/linux/Dockerfile.debug` adds its missing Python runtime to a separate image. This is optional; the automatic test does not need the debugger's expression evaluator.
@@ -114,10 +146,12 @@ For stack inspection with the bundled Linux LLDB, `scripts/linux/Dockerfile.debu
 - [Theos SDKs](https://github.com/theos/sdks): `0222fd5413cf4b9af096f37b4621afa2688572f7`, using iPhoneOS 15.6.
 - Ubuntu 20.04 container base pinned by image digest.
 - Existing ARMv7 curl/OpenSSL archives and the 18 Swift runtime libraries from `build/podcold_ios6.ipa`.
-- Apple's `libarclite_iphoneos.a` from the pinned toolchain, force-linked to supply legacy Objective-C class-registration support required by Swift on iOS 7. Xcode adds this automatically; the Linux link driver needs an explicit flag.
+- Apple's `libarclite_iphoneos.a` from the pinned toolchain, force-linked to supply legacy Objective-C class-registration support required by Swift on older iOS versions. Xcode adds this automatically; the Linux link driver needs an explicit flag.
 
 The Swift resource directory must explicitly select Apple's libraries; otherwise the Linux compiler imports Linux CoreFoundation/Dispatch modules. Clang needs its Darwin compiler-runtime directory for the platform-version helper used by curl. Optional SDK Swift overlays are weak-linked. The packaged executable resolves the CoreMedia Swift overlay from the bundle, matching the upstream IPA.
 
 Icons are copied from their original PNG sources; the build does not require Apple's asset-catalog compiler. All runtime libraries are reduced to ARMv7 and re-signed. Packaging verifies ZIP integrity, bundle identity, Mach-O architecture and minimum OS for every binary, code-signature presence, required bundled dependencies, the arclite class marker and weak registration import, and required app symbols against the original Swift runtime export tables. These are static checks, not a substitute for a device launch or a cryptographic signature validation.
+
+iOS 6 also needs out-of-line 64-bit and generic atomic operations used by the OpenSSL archive. `atomic_stubs.c` provides these using a shared pthread mutex and alignment-safe copies.
 
 The upstream `atomic_stubs.S` currently emits a linker warning about the alignment of its `.Lno` label. The application sources are retained for this baseline build; the physical-device check remains necessary.

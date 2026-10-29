@@ -5,6 +5,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     let podcast: Podcast
     private var episodes: [Episode] = []
     private let tableView = UITableView()
+    private let playlistActions = EpisodePlaylistActions()
     private var spinner: UIActivityIndicatorView!
     private var subscribeButton: UIButton!
     private var sectionHeaderView: UIView!
@@ -48,6 +49,9 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         tableView.contentInset     = UIEdgeInsets(top: 0, left: 0, bottom: 60, right: 0)
         tableView.tableHeaderView  = buildHeaderView()
         view.addSubview(tableView)
+        tableView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(episodeHeld(_:))))
+        NotificationCenter.default.addObserver(self, selector: #selector(playlistChanged), name: .playQueueChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(playlistChanged), name: .episodeLibraryChanged, object: nil)
 
         spinner = UIActivityIndicatorView(style: .whiteLarge)
         spinner.center = view.center
@@ -393,6 +397,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         let localFile = ep.localPath()
         var detail = ep.pubDate.isEmpty ? ep.duration : "\(ep.pubDate)  \(ep.duration)"
         if localFile != nil { detail = detail.isEmpty ? "Offline" : "\(detail) · Offline" }
+        if PlayQueue.shared.contains(guid: ep.guid) { detail += " · In playlist" }
         cell.detailTextLabel?.text      = detail
         cell.detailTextLabel?.textColor = localFile != nil
             ? UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
@@ -423,7 +428,22 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.row < episodes.count else { return }
         navigationController?.pushViewController(
             EpisodeDetailVC(episode: episodes[indexPath.row], podcast: podcast), animated: true)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func playlistChanged() {
+        guard isViewLoaded, view.window != nil else { return }
+        tableView.reloadData()
+    }
+
+    @objc private func episodeHeld(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began,
+              let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              path.row < episodes.count else { return }
+        playlistActions.show(episode: episodes[path.row], in: view)
     }
 }

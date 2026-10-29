@@ -44,7 +44,7 @@ git -C "$cache_root/sdks" sparse-checkout set iPhoneOS15.6.sdk
 python3 scripts/linux/artifact.py prepare
 
 docker build --tag podcold-linux:swift56 --file scripts/linux/Dockerfile scripts/linux
-echo 'Compiling ARMv7 code for iOS 7...'
+echo 'Compiling ARMv7 code for iOS 6 and later...'
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     --pids-limit 256 --memory 4g --cpus 2 --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$repo_root,target=/workspace" \

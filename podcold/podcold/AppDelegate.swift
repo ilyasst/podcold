@@ -13,6 +13,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         DeviceAutoEpisodeTest.restoreInterruptedTest()
         DeviceNotesTest.restoreInterruptedTest()
+        DevicePlaylistTest.restoreInterruptedTest()
         #endif
         let nav = UINavigationController(rootViewController: HomeVC())
         nav.navigationBar.barStyle = .black
@@ -29,9 +30,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.addSubview(miniBar)
 
         // Clear ".part" sidecars left behind by downloads a crash or force-quit cut short.
-        EpisodeDownloader.sweepStalePartFiles { AutoEpisodeManager.shared.downloadsReady() }
+        EpisodeDownloader.sweepStalePartFiles {
+            #if PODCOLD_DEVICE_TESTING
+            if !CommandLine.arguments.contains(where: { $0.hasPrefix("--podcold-") && $0.hasSuffix("-test") }) {
+                PlayQueue.shared.fillAvailableSlots()
+            }
+            #else
+            PlayQueue.shared.fillAvailableSlots()
+            #endif
+            AutoEpisodeManager.shared.downloadsReady()
+        }
 
         #if PODCOLD_DEVICE_TESTING
+        if CommandLine.arguments.contains("--podcold-playlist-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { DevicePlaylistTest.run(navigation: nav) }
+        }
         if CommandLine.arguments.contains("--podcold-device-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 DeviceSmokeTest.run(navigation: nav)

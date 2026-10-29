@@ -63,7 +63,7 @@ class AutoEpisodeManager {
         var items = raw["items"] as? [[String: Any]] ?? []
         var pendingIDs = Set(items.compactMap { ($0["episode"] as? [String: Any])?["guid"] as? String })
         for ep in candidates {
-            if AutoEpisodeManager.queueEnabled { PlayQueue.shared.add(ep) }
+            PlayQueue.shared.offerAutomatically(ep, source: .newEpisode)
             if AutoEpisodeManager.downloadEnabled && pendingIDs.insert(ep.guid).inserted {
                 items.append(["feed": feedURL, "episode": ep.toDict(), "downloaded": false])
             }
@@ -95,6 +95,7 @@ class AutoEpisodeManager {
     }
 
     func settingsChanged() {
+        PlayQueue.shared.fillAvailableSlots()
         // Changing the download switch/limit also applies to already observed
         // unplayed episodes in the playlist, without re-adding removed queue rows.
         if AutoEpisodeManager.downloadEnabled {

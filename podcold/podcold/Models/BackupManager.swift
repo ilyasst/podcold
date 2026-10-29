@@ -66,6 +66,9 @@ struct BackupManager {
             "autoDeleteFinished": Episode.autoDeleteFinished,
             "maxNewEpisodes":     UpNextManager.maxNewEpisodes,
             "autoQueue": AutoEpisodeManager.queueEnabled,
+            "playlistAddDownloads": PlayQueue.addDownloads,
+            "playlistMaximumSize": PlayQueue.maximumSize,
+            "playlistPending": ud.array(forKey: PlayQueue.pendingKey) ?? [],
             "autoDownload": AutoEpisodeManager.downloadEnabled,
             "autoDownloadLimit": AutoEpisodeManager.downloadLimit,
             "autoEpisodeState": ud.dictionary(forKey: AutoEpisodeManager.stateKey) ?? [:]
@@ -113,6 +116,9 @@ struct BackupManager {
         let autoDeleteFinished: Bool?
         let maxNewEpisodes:     Int?
         let autoQueue: Bool?
+        let playlistAddDownloads: Bool?
+        let playlistMaximumSize: Int?
+        let playlistPending: [[String: Any]]?
         let autoDownload: Bool?
         let autoDownloadLimit: Int?
         let autoEpisodeState: [String: Any]?
@@ -160,6 +166,9 @@ struct BackupManager {
             maxNewEpisodes: (dict["maxNewEpisodes"] as? Int)
                 .flatMap { UpNextManager.maxNewEpisodesRange.contains($0) ? $0 : nil },
             autoQueue: dict["autoQueue"] as? Bool,
+            playlistAddDownloads: dict["playlistAddDownloads"] as? Bool,
+            playlistMaximumSize: (dict["playlistMaximumSize"] as? Int).flatMap { PlayQueue.limitRange.contains($0) ? $0 : nil },
+            playlistPending: dict["playlistPending"] as? [[String: Any]],
             autoDownload: dict["autoDownload"] as? Bool,
             autoDownloadLimit: (dict["autoDownloadLimit"] as? Int).flatMap { AutoEpisodeManager.limitRange.contains($0) ? $0 : nil },
             autoEpisodeState: dict["autoEpisodeState"] as? [String: Any],
@@ -246,6 +255,18 @@ struct BackupManager {
             LatestEpisodeCache.clear()
         }
         if let value = backup.autoQueue { AutoEpisodeManager.queueEnabled = value }
+        if let value = backup.playlistAddDownloads { PlayQueue.addDownloads = value }
+        if let value = backup.playlistMaximumSize { PlayQueue.maximumSize = value }
+        if let pending = backup.playlistPending {
+            var merged = (mode == .merge ? ud.array(forKey: PlayQueue.pendingKey) as? [[String: Any]] : nil) ?? []
+            var ids = Set(merged.compactMap { ($0["episode"] as? [String: Any])?["guid"] as? String })
+            for item in pending {
+                if let guid = (item["episode"] as? [String: Any])?["guid"] as? String, ids.insert(guid).inserted { merged.append(item) }
+            }
+            ud.set(Array(merged.prefix(200)), forKey: PlayQueue.pendingKey)
+        } else if case .replace = mode {
+            ud.removeObject(forKey: PlayQueue.pendingKey)
+        }
         if let value = backup.autoDownload { AutoEpisodeManager.downloadEnabled = value }
         if let value = backup.autoDownloadLimit { AutoEpisodeManager.downloadLimit = value }
         if let imported = backup.autoEpisodeState {

@@ -1,5 +1,5 @@
 ARCHS = armv7
-TARGET = iphone:clang:15.6:7.0
+TARGET = iphone:clang:15.6:6.0
 DEBUG = 0
 FINALPACKAGE = 1
 

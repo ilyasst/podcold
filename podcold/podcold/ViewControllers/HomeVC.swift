@@ -25,7 +25,7 @@ class HomeVC: UIViewController {
         let settingsBtn = UIBarButtonItem(image: UIImage(named: "gear-icon"), style: .plain, target: self, action: #selector(openSettings))
         navigationItem.rightBarButtonItems = [searchBtn, settingsBtn]
         navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "Downloads", style: .plain, target: self, action: #selector(openDownloads))
+            title: "Playlist", style: .plain, target: self, action: #selector(openPlaylist))
         scrollView = UIScrollView(frame: view.bounds)
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(scrollView)
@@ -111,6 +111,17 @@ class HomeVC: UIViewController {
         syncCountLabel    = nil
         let w = UIScreen.main.bounds.width
         var y: CGFloat = 12
+
+        let downloads = UIButton(type: .custom)
+        downloads.frame = CGRect(x: 12, y: y, width: w - 24, height: 40)
+        downloads.setTitle("Downloads", for: .normal)
+        downloads.setTitleColor(UIColor(red: 0.75, green: 0.58, blue: 0.9, alpha: 1), for: .normal)
+        downloads.backgroundColor = UIColor(white: 0.17, alpha: 1)
+        downloads.layer.cornerRadius = 7
+        downloads.accessibilityIdentifier = "open-downloads"
+        downloads.addTarget(self, action: #selector(openDownloads), for: .touchUpInside)
+        scrollView.addSubview(downloads)
+        y += 52
 
         if !recentEpisodes.isEmpty {
             scrollView.addSubview(sectionHeader("Continue Listening", y: y, w: w))
@@ -515,5 +526,9 @@ class HomeVC: UIViewController {
 
     @objc private func openDownloads() {
         navigationController?.pushViewController(DownloadsVC(), animated: true)
+    }
+
+    @objc private func openPlaylist() {
+        navigationController?.pushViewController(PlaylistVC(), animated: true)
     }
 }

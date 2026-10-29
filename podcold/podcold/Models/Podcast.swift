@@ -25,16 +25,20 @@ class Podcast: NSObject {
         var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
         if !text.contains("://") { text = "https://" + text }
-        guard let parts = NSURLComponents(string: text),
-              let scheme = parts.scheme?.lowercased(), scheme == "https" || scheme == "http",
-              let host = parts.host, !host.isEmpty else { return nil }
-        parts.scheme = scheme
-        parts.host = host.lowercased()
-        parts.fragment = nil
-        if (scheme == "https" && parts.port?.intValue == 443) || (scheme == "http" && parts.port?.intValue == 80) {
-            parts.port = nil
-        }
-        return parts.url?.absoluteString
+        guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http", let host = url.host, !host.isEmpty,
+              let separator = text.range(of: "://") else { return nil }
+        // NSURLComponents first appeared in iOS 7. Normalize the authority using
+        // NSURL's parsed host/port while keeping escaped path and query bytes.
+        let tail = String(text[separator.upperBound...]).components(separatedBy: "#")[0]
+        let boundary = tail.firstIndex(where: { $0 == "/" || $0 == "?" }) ?? tail.endIndex
+        let authority = String(tail[..<boundary])
+        let credentials = authority.lastIndex(of: "@").map { String(authority[...$0]) } ?? ""
+        let normalizedHost = host.contains(":") && !host.hasPrefix("[") ? "[" + host.lowercased() + "]" : host.lowercased()
+        let port = url.port
+        let defaultPort = (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+        let suffix = port != nil && !defaultPort ? ":" + String(port!) : ""
+        return scheme + "://" + credentials + normalizedHost + suffix + String(tail[boundary...])
     }
 
     static func subscription(feedUrl: String) -> Podcast? {

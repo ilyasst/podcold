@@ -10,7 +10,7 @@ class AddFeedVC: UIViewController, UITextFieldDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Add Feed URL"
-        edgesForExtendedLayout = []
+        if #available(iOS 7.0, *) { edgesForExtendedLayout = [] }
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
         let width = view.bounds.width
         let scroll = UIScrollView(frame: view.bounds)

@@ -46,7 +46,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         case 0:
             return "When on, the downloaded file is deleted once an episode finishes playing or you tap Done."
         case 1:
-            return "The switches work independently. The limit counts unplayed automatic downloads across all feeds and refills as you finish them. Manual downloads are separate; lowering the limit keeps existing files. First checks use the window below. Feeds refresh on opening and every 45 minutes while active."
+            return "Playlist Options controls automatic adding and playlist size. The download limit counts unplayed automatic downloads across all feeds and refills as you finish them. Manual downloads are separate; lowering the limit keeps existing files. First checks use the window below. Feeds refresh on opening and every 45 minutes while active."
         case 2:
             return "How many of a podcast's most recent unplayed episodes can be offered. Once you tap Done on all of them, that podcast stays quiet until it publishes something new."
         default:
@@ -61,7 +61,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         cell.detailTextLabel?.backgroundColor  = .clear
         cell.textLabel?.textColor              = .white
         cell.detailTextLabel?.textColor        = UIColor(white: 1, alpha: 0.4)
-        cell.selectionStyle                    = .default
+        cell.selectionStyle                    = .blue
 
         if indexPath.section == 0 {
             cell.textLabel?.text = "Delete after playing"
@@ -77,13 +77,16 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             cell.textLabel?.font = UIFont.systemFont(ofSize: 14)
             cell.selectionStyle = .none
             switch indexPath.row {
-            case 0, 1:
-                let queue = indexPath.row == 0
-                cell.textLabel?.text = queue ? "Add new episodes to queue" : "Auto download episodes"
+            case 0:
+                cell.textLabel?.text = "Playlist Options"
+                cell.accessoryType = .disclosureIndicator
+                cell.selectionStyle = .blue
+            case 1:
+                cell.textLabel?.text = "Auto download episodes"
                 let sw = UISwitch()
-                sw.isOn = queue ? AutoEpisodeManager.queueEnabled : AutoEpisodeManager.downloadEnabled
-                sw.accessibilityIdentifier = queue ? "auto-queue" : "auto-download"
-                sw.addTarget(self, action: queue ? #selector(autoQueueChanged(_:)) : #selector(autoDownloadChanged(_:)), for: .valueChanged)
+                sw.isOn = AutoEpisodeManager.downloadEnabled
+                sw.accessibilityIdentifier = "auto-download"
+                sw.addTarget(self, action: #selector(autoDownloadChanged(_:)), for: .valueChanged)
                 cell.accessoryView = sw
             case 2:
                 cell.textLabel?.text = "Auto download limit"
@@ -98,7 +101,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             default:
                 cell.textLabel?.text = "Check feeds now"
                 cell.textLabel?.textColor = UIColor(red: 0.65, green: 0.4, blue: 0.85, alpha: 1)
-                cell.selectionStyle = .default
+                cell.selectionStyle = .blue
                 cell.accessibilityIdentifier = "check-feeds-now"
             }
             return cell
@@ -134,6 +137,10 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        if indexPath.section == 1 && indexPath.row == 0 {
+            navigationController?.pushViewController(PlaylistSettingsVC(), animated: true)
+            return
+        }
         if indexPath.section == 1 && indexPath.row == 3 {
             LatestEpisodeCache.clear()
             AutoEpisodeManager.shared.settingsChanged()
@@ -151,11 +158,6 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
     }
 
     // MARK: - Automatic episodes
-
-    @objc private func autoQueueChanged(_ sender: UISwitch) {
-        AutoEpisodeManager.queueEnabled = sender.isOn
-        AutoEpisodeManager.shared.settingsChanged()
-    }
 
     @objc private func autoDownloadChanged(_ sender: UISwitch) {
         AutoEpisodeManager.downloadEnabled = sender.isOn

@@ -389,7 +389,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         label.backgroundColor = .clear
         label.textColor = UIColor(white: 0.55, alpha: 1)
         label.font = UIFont.boldSystemFont(ofSize: 12)
-        label.text = "UP NEXT"
+        label.text = "PLAYLIST · UP NEXT"
         header.addSubview(label)
         return header
     }

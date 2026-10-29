@@ -55,7 +55,10 @@ class EpisodeDownloader {
             for listener in transfer.listeners { listener.0(value) }
         }) { ok in
             transfers.removeValue(forKey: episode.guid)
-            if ok { Episode.addToDownloads(episode) }
+            if ok {
+                Episode.addToDownloads(episode)
+                PlayQueue.shared.offerAutomatically(episode, source: .download)
+            }
             // Complete ownership bookkeeping before notifying automatic refill.
             for listener in transfer.listeners { listener.1(ok) }
             NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil)

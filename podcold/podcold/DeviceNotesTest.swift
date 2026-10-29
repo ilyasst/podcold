@@ -59,7 +59,7 @@ enum DeviceNotesTest {
                 let test = Episode.from(dict: original.toDict())
                 test.guid = "device-notes-" + (checks["run_token"] as? String ?? UUID().uuidString)
                 episode = test
-                let keys = [Episode.recentsKey, Episode.downloadsKey, Episode.playedGuidsKey, PlayQueue.storageKey]
+                let keys = [Episode.recentsKey, Episode.downloadsKey, Episode.playedGuidsKey, PlayQueue.storageKey, PlayQueue.pendingKey, PlayQueue.downloadedKey]
                 var saved: [String: Any] = [:], missing: [String] = []
                 for key in keys {
                     if let value = UserDefaults.standard.object(forKey: key) { saved[key] = value }
@@ -67,6 +67,7 @@ enum DeviceNotesTest {
                 }
                 UserDefaults.standard.set(["values": saved, "missing": missing, "guid": test.guid], forKey: recoveryKey)
                 UserDefaults.standard.synchronize()
+                PlayQueue.addDownloads = false
                 let screen = EpisodeDetailVC(episode: test, podcast: feed.podcast)
                 detail = screen
                 navigation.pushViewController(screen, animated: false)
@@ -87,8 +88,10 @@ enum DeviceNotesTest {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { inspectNotes() }; return
         }
         let links = linkRuns(notes.attributedText)
-        checks["native_links"] = !notes.isEditable && notes.isSelectable && !notes.isScrollEnabled &&
-            links.contains(where: { $0.0 == "Listened" }) && notes.delegate === screen
+        if #available(iOS 7.0, *) {
+            checks["native_links"] = !notes.isEditable && notes.isSelectable && !notes.isScrollEnabled &&
+                links.contains(where: { $0.0 == "Listened" }) && notes.delegate === screen
+        }
         checks["feedback_link_count"] = links.count
         let byline = views(screen.view).first(where: { $0.accessibilityIdentifier == "episode-author" }) as? UILabel
         checks["original_author_byline"] = !(episode?.author.isEmpty ?? true) && byline?.text == "By " + (episode?.author ?? "")
@@ -187,7 +190,12 @@ enum DeviceNotesTest {
                 // avoids leaving any additional episode's progress keys behind.
                 UserDefaults.standard.set([], forKey: PlayQueue.storageKey)
                 PlayQueue.shared.reload()
-                if let ep = episode { PlayQueue.shared.add(ep) }
+                // Seed the repeated identity directly: the normal playlist now
+                // refuses to add the episode that is already playing.
+                if let ep = episode {
+                    UserDefaults.standard.set([ep.toDict()], forKey: PlayQueue.storageKey)
+                    PlayQueue.shared.reload()
+                }
                 player.seek(to: player.duration - 2)
                 attempts = 0
                 pollSleepEnd()
@@ -280,7 +288,7 @@ enum DeviceNotesTest {
 
     private static func linkRuns(_ text: NSAttributedString) -> [(String, URL, NSRange)] {
         var links: [(String, URL, NSRange)] = []
-        text.enumerateAttribute(.link, in: NSRange(location: 0, length: text.length), options: []) { value, range, _ in
+        text.enumerateAttribute(NSAttributedString.Key("NSLink"), in: NSRange(location: 0, length: text.length), options: []) { value, range, _ in
             if let url = value as? URL { links.append(((text.string as NSString).substring(with: range), url, range)) }
         }
         return links

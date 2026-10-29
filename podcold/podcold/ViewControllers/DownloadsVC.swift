@@ -4,6 +4,7 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
     private let tableView = UITableView()
     private var episodes: [Episode] = []
     private var episodeSizes: [String: String] = [:]
+    private let playlistActions = EpisodePlaylistActions()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -19,6 +20,7 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         tableView.rowHeight        = 68
         tableView.contentInset     = UIEdgeInsets(top: 0, left: 0, bottom: 60, right: 0)
         view.addSubview(tableView)
+        tableView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(episodeHeld(_:))))
         NotificationCenter.default.addObserver(self, selector: #selector(reloadDownloads), name: .episodeLibraryChanged, object: nil)
     }
 
@@ -76,6 +78,7 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         let cell = tableView.dequeueReusableCell(withIdentifier: "dl") ??
                    UITableViewCell(style: .subtitle, reuseIdentifier: "dl")
         let ep = episodes[indexPath.row]
+        cell.accessibilityIdentifier = ep.guid
 
         cell.textLabel?.text          = ep.title
         cell.textLabel?.textColor     = .white
@@ -94,15 +97,13 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         cell.imageView?.image = nil
         if !ep.artworkUrl.isEmpty {
             let url = ep.artworkUrl
-            AsyncImageView.loadCell(url: url) { [weak self, weak tableView] img in
-                guard let self = self,
-                      let c = tableView?.cellForRow(at: indexPath) else { return }
-                // A delete shifts every row below it up, so by the time this
-                // lands the index may belong to a different episode.
-                guard indexPath.row < self.episodes.count,
-                      self.episodes[indexPath.row].artworkUrl == url else { return }
-                c.imageView?.image = img
-                c.setNeedsLayout()
+            AsyncImageView.loadCell(url: url) { [weak cell] img in
+                // A warm cache calls back inline during cellForRowAt. Asking the
+                // table for that row again can re-enter the data source forever.
+                // Capture the cell itself and check identity in case it was reused.
+                guard let cell = cell, cell.accessibilityIdentifier == ep.guid else { return }
+                cell.imageView?.image = img
+                cell.setNeedsLayout()
             }
         }
         return cell
@@ -111,7 +112,7 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
     func tableView(_ tableView: UITableView,
                    commit editingStyle: UITableViewCell.EditingStyle,
                    forRowAt indexPath: IndexPath) {
-        guard editingStyle == .delete else { return }
+        guard editingStyle == .delete, indexPath.row < episodes.count else { return }
         let ep = episodes[indexPath.row]
         // AVPlayer is reading this exact file. Pulling it out from under the player
         // leaves it on a deleted inode and playback dies a few seconds later with no
@@ -136,8 +137,16 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
 
     // MARK: - UITableViewDelegate
 
+    @objc private func episodeHeld(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began,
+              let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              path.row < episodes.count else { return }
+        playlistActions.show(episode: episodes[path.row], in: view)
+    }
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.row < episodes.count else { return }
         let ep = episodes[indexPath.row]
         let podcast = Podcast.loadSubscriptions().first { $0.title == ep.podcastTitle } ?? {
             let p = Podcast()

@@ -99,7 +99,7 @@ def prepare():
         'CFBundleName': 'Podcold Linux', 'CFBundleDisplayName': 'Podcold Linux',
         'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.0', 'CFBundleVersion': '1',
         'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True,
-        'MinimumOSVersion': '7.0', 'UIRequiredDeviceCapabilities': ['armv7'],
+        'MinimumOSVersion': '6.0', 'UIRequiredDeviceCapabilities': ['armv7'],
         'UIDeviceFamily': [1, 2], 'UIBackgroundModes': ['audio'], 'UIFileSharingEnabled': True,
         'UISupportedInterfaceOrientations': ['UIInterfaceOrientationPortrait'],
         'CFBundleIconFiles': ['icon-57.png', 'icon-114.png', 'icon-120.png'],
@@ -122,7 +122,7 @@ def verify(path):
         info_path = next(n for n in archive.namelist() if n.count('/') == 2 and n.endswith('/Info.plist'))
         prefix = info_path.rsplit('/', 1)[0] + '/'
         info = plistlib.loads(archive.read(info_path))
-        if info['CFBundleIdentifier'] != 'org.ilyasst.podcold.linux' or info['MinimumOSVersion'] != '7.0':
+        if info['CFBundleIdentifier'] != 'org.ilyasst.podcold.linux' or info['MinimumOSVersion'] != '6.0':
             raise ValueError('Incorrect test app identity or minimum OS')
         binaries = {info['CFBundleExecutable']: archive.read(prefix + info['CFBundleExecutable'])}
         binaries.update({Path(n).name: archive.read(n) for n in archive.namelist()
@@ -133,7 +133,7 @@ def verify(path):
     exports = {name: {symbol for symbol, kind, _ in entry['symbols'] if kind & 1 and kind & 14}
                for name, entry in parsed.items()}
     for name, entry in parsed.items():
-        if entry['minimum_os'] is None or entry['minimum_os'] > 7 << 16:
+        if entry['minimum_os'] is None or entry['minimum_os'] > 6 << 16:
             raise ValueError('Minimum OS is too new: ' + name)
         if not entry['signed']:
             raise ValueError('Missing code signature: ' + name)
@@ -158,7 +158,7 @@ def verify(path):
             name = Path(app['libraries'][ordinal - 1]['name']).name
             if name in exports and symbol not in exports[name]:
                 raise ValueError('Legacy runtime lacks required symbol: ' + symbol)
-    return {'architecture': 'armv7', 'minimum_ios': '7.0', 'bundle_identifier': info['CFBundleIdentifier'],
+    return {'architecture': 'armv7', 'minimum_ios': '6.0', 'bundle_identifier': info['CFBundleIdentifier'],
             'runtime_libraries': len(parsed) - 1, 'notes_link_delegate': True, 'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(),
             'size_bytes': Path(path).stat().st_size, 'device_tested': False}
 
