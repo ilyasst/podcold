@@ -9,7 +9,7 @@ include $(THEOS)/makefiles/common.mk
 _THEOS_TARGET_SWIFT_LDPATHS = /workspace/.build-linux/runtime /workspace/.build-linux/toolchain/linux/iphone/lib/swift-5.0/iphoneos /workspace/.build-linux/toolchain/linux/iphone/lib/swift/iphoneos
 
 APPLICATION_NAME = podcold
-podcold_FILES = $(wildcard Sources/*.swift Sources/Models/*.swift Sources/Networking/*.swift Sources/Playback/*.swift Sources/Views/*.swift Sources/ViewControllers/*.swift Sources/Networking/*.c Sources/Networking/*.S)
+podcold_FILES = $(wildcard Sources/*.swift Sources/Models/*.swift Sources/Networking/*.swift Sources/Playback/*.swift Sources/Views/*.swift Sources/ViewControllers/*.swift Sources/Networking/*.c Sources/Networking/*.m Sources/Networking/*.S)
 podcold_FRAMEWORKS = UIKit Foundation AVFoundation MediaPlayer Security SystemConfiguration CFNetwork AudioToolbox CoreGraphics QuartzCore ImageIO
 podcold_CFLAGS = -I/workspace/podcold/ThirdParty/curl/include -fmodules-cache-path=/workspace/.build-linux/clang-module-cache
 podcold_SWIFTFLAGS = -enable-objc-interop -I/workspace/podcold/ThirdParty/curl/include -resource-dir /workspace/.build-linux/toolchain/linux/iphone/lib/swift -module-cache-path /workspace/.build-linux/module-cache

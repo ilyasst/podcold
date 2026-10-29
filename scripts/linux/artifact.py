@@ -138,10 +138,16 @@ def verify(path):
         if not entry['signed']:
             raise ValueError('Missing code signature: ' + name)
         for library in entry['libraries']:
+            dependency = Path(library['name']).name
+            if dependency in parsed and library['name'] != '@rpath/' + dependency:
+                raise ValueError('Bundled runtime must load from the app: ' + library['name'])
             if not library['weak'] and library['name'].startswith('@rpath/'):
                 if Path(library['name']).name not in parsed:
                     raise ValueError('Missing bundled dependency: ' + library['name'])
     app = parsed[info['CFBundleExecutable']]
+    if any(symbol == '_objc_allocWithZone' and kind & 14 == 0 and not flags & 0x40
+           for symbol, kind, flags in app['symbols']):
+        raise ValueError('Missing iOS 6 Objective-C allocation compatibility')
     # Release stripping removes arclite's private symbols; its Objective-C class
     # name survives. Its registration import must be weak on pre-iOS-8 devices.
     if (b'__ARCLite__\0' not in binaries[info['CFBundleExecutable']] or
@@ -172,9 +178,17 @@ def package():
     shutil.copytree(CACHE / 'runtime', app / 'Frameworks')
     tools = CACHE / 'toolchain/linux/iphone/bin'
     executable = app / 'podcold'
-    # Resolve CoreMedia's Swift overlay from the bundle, as in the upstream IPA.
-    subprocess.run([str(tools / 'install_name_tool'), '-change', '/usr/lib/swift/libswiftCoreMedia.dylib',
-                    '@rpath/libswiftCoreMedia.dylib', str(executable)], check=True)
+    # The iOS 6 linker can choose absolute /usr/lib/swift install names even
+    # though the legacy runtime is packaged here. Rewrite every bundled runtime
+    # reference, including overlays and dependencies between the dylibs.
+    runtimes = list((app / 'Frameworks').glob('*.dylib'))
+    runtime_names = {binary.name for binary in runtimes}
+    for binary in runtimes + [executable]:
+        for library in macho(binary.read_bytes())['libraries']:
+            name = Path(library['name']).name
+            if name in runtime_names and library['name'] != '@rpath/' + name:
+                subprocess.run([str(tools / 'install_name_tool'), '-change', library['name'],
+                                '@rpath/' + name, str(binary)], check=True)
     debug = os.environ.get('PODCOLD_DEBUG') == '1'
     signing_option = '-S'
     if debug:

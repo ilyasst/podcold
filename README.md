@@ -8,6 +8,8 @@ The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 
 
 Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, directory search, and adding an RSS feed by URL have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. Native description links, a real 2.8 MB episode download, local playback, and 40 seconds of continued playback while Safari is in front have also passed physical-device checks. Safari loaded the public Podweaver confirmation page; no feedback was submitted.
 
+A newly jailbroken iPod touch 4 on iOS 6.1.6 has also installed and opened the current app, and passed the playlist scenario: warm-cache Downloads reloads, options, notes, backup restoration and two local episodes playing in order. Its jailbreak uses Legacy iOS Kit's ramdisk workflow and retains iOS 6.1.6. The ad hoc package requires working AppSync on jailbroken devices.
+
 Requirements: Docker, Bash, curl, Git, Python 3, tar with xz support, and sha256sum. Allow roughly 5 GB for the toolchain, SDK, Docker image, download cache, and intermediate files.
 
 ```bash
@@ -125,7 +127,7 @@ To check playlist behavior and the cached-artwork crash on a jailbroken device:
 python3 scripts/test-device.py --device-model iPod4,1 --install --playlist
 ```
 
-This standalone scenario uses short local silent WAV files and a primed artwork cache. It exercises repeated Downloads reloads, deletion, native playlist options, action-sheet adding, persistent limits/backlog/order, notes compatibility, backup restoration, and real AVPlayer advancement. It preserves the original preferences and removes temporary files. Its report is `playlist-results.json`. This new scenario has been compiled; it has not yet run on hardware. The connected iOS 6.1.6 iPod rejected installation with `ApplicationVerificationFailed` and was confirmed to be unjailbroken. Use AppSync on a jailbroken device or a valid Apple development signing setup to install the ad hoc IPA. The previously tested jailbroken iOS 7 iPod was unavailable during this change.
+This standalone scenario uses short local silent WAV files and a primed artwork cache. It exercises repeated Downloads reloads, deletion, native playlist options, action-sheet adding, persistent limits/backlog/order, notes compatibility, backup restoration, and real AVPlayer advancement. It preserves the original preferences and removes temporary files. Its report is `playlist-results.json`. This scenario passed on an iPod touch 4 running iOS 6.1.6 after a user-authorized Legacy iOS Kit jailbreak and AppSync installation. The separate original device that exhibited the Downloads crash was unavailable; this check exercises the synchronous cached-artwork path on the newly connected device.
 
 Headless checks compile the actual persistent playlist, episode, podcast and backup models with small UIKit-free collaborators. They also stress the iOS 6 atomic compatibility implementation with concurrent unaligned increments:
 
@@ -148,10 +150,10 @@ For stack inspection with the bundled Linux LLDB, `scripts/linux/Dockerfile.debu
 - Existing ARMv7 curl/OpenSSL archives and the 18 Swift runtime libraries from `build/podcold_ios6.ipa`.
 - Apple's `libarclite_iphoneos.a` from the pinned toolchain, force-linked to supply legacy Objective-C class-registration support required by Swift on older iOS versions. Xcode adds this automatically; the Linux link driver needs an explicit flag.
 
-The Swift resource directory must explicitly select Apple's libraries; otherwise the Linux compiler imports Linux CoreFoundation/Dispatch modules. Clang needs its Darwin compiler-runtime directory for the platform-version helper used by curl. Optional SDK Swift overlays are weak-linked. The packaged executable resolves the CoreMedia Swift overlay from the bundle, matching the upstream IPA.
+The Swift resource directory must explicitly select Apple's libraries; otherwise the Linux compiler imports Linux CoreFoundation/Dispatch modules. Clang needs its Darwin compiler-runtime directory for the platform-version helper used by curl. Optional SDK Swift overlays are weak-linked. The package rewrites all references to its bundled Swift libraries to use `@rpath`, including references between runtime libraries. An iOS 6 allocation shim supplies `objc_allocWithZone` through the equivalent `allocWithZone:` message. An NSData fallback supplies the byte-range enumeration method used by Swift Data on iOS 6, and Playlist Options implements the initializer called internally by the older UITableViewController. These fixes were verified on iOS 6.1.6; the verifier now rejects system-path references to bundled runtimes and an unresolved allocation entry point.
 
 Icons are copied from their original PNG sources; the build does not require Apple's asset-catalog compiler. All runtime libraries are reduced to ARMv7 and re-signed. Packaging verifies ZIP integrity, bundle identity, Mach-O architecture and minimum OS for every binary, code-signature presence, required bundled dependencies, the arclite class marker and weak registration import, and required app symbols against the original Swift runtime export tables. These are static checks, not a substitute for a device launch or a cryptographic signature validation.
 
 iOS 6 also needs out-of-line 64-bit and generic atomic operations used by the OpenSSL archive. `atomic_stubs.c` provides these using a shared pthread mutex and alignment-safe copies.
 
-The upstream `atomic_stubs.S` currently emits a linker warning about the alignment of its `.Lno` label. The application sources are retained for this baseline build; the physical-device check remains necessary.
+The upstream `atomic_stubs.S` currently emits a linker warning about the alignment of its `.Lno` label. The application sources are retained; the separate device reports record the physical validation scope.

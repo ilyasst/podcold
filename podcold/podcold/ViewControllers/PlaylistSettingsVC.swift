@@ -2,6 +2,8 @@ import UIKit
 
 class PlaylistSettingsVC: UITableViewController {
     init() { super.init(style: .grouped) }
+    // iOS 6's UITableViewController.init(style:) calls this initializer on self.
+    override init(nibName: String?, bundle: Bundle?) { super.init(nibName: nibName, bundle: bundle) }
     required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {

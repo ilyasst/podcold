@@ -61,6 +61,7 @@
 		BB000001000000000000BC26 /* EpisodePlaylistActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB26 /* EpisodePlaylistActions.swift */; };
 		BB000001000000000000BC27 /* LegacyEpisodeNotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB27 /* LegacyEpisodeNotesView.swift */; };
 		BB000001000000000000BC28 /* AutoEpisodeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB28 /* AutoEpisodeManager.swift */; };
+		BB000001000000000000BC29 /* objc_legacy.m in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB29 /* objc_legacy.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -124,6 +125,7 @@
 		BB000001000000000000BB26 /* EpisodePlaylistActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodePlaylistActions.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB27 /* LegacyEpisodeNotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyEpisodeNotesView.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB28 /* AutoEpisodeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEpisodeManager.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB29 /* objc_legacy.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = objc_legacy.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -216,6 +218,7 @@
 		BB000001000000000000AA01 /* Networking */ = {
 			isa = PBXGroup;
 			children = (
+				BB000001000000000000BB29 /* objc_legacy.m */,
 				BB000001000000000000BB01 /* HTTPClient.swift */,
 				BB000001000000000000BB02 /* iTunesAPI.swift */,
 				BB000001000000000000BB03 /* FeedParser.swift */,
@@ -423,6 +426,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB000001000000000000BC29 /* objc_legacy.m in Sources */,
 				BB000001000000000000BC28 /* AutoEpisodeManager.swift in Sources */,
 				BB000001000000000000BC27 /* LegacyEpisodeNotesView.swift in Sources */,
 				BB000001000000000000BC26 /* EpisodePlaylistActions.swift in Sources */,
