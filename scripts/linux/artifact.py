@@ -24,6 +24,11 @@ if ARCH not in TARGETS:
     raise ValueError('PODCOLD_ARCH must be armv7 or arm64')
 TARGET = TARGETS[ARCH]
 IPA = ROOT / 'dist' / TARGET['ipa']
+# The SDK moved audio symbols in iOS 14.5. Its AVFAudio.tbd declares
+# $ld$previous$...AVFoundation...$1.0$14.5$, which this older linker ignores.
+# AVFoundation provides these symbols on iOS 6/12 and re-exports them later.
+AVFAUDIO = '/System/Library/Frameworks/AVFAudio.framework/AVFAudio'
+AVFOUNDATION = '/System/Library/Frameworks/AVFoundation.framework/AVFoundation'
 
 
 def thin(data, architecture):
@@ -161,6 +166,8 @@ def verify(path):
         if not entry['signed']:
             raise ValueError('Missing code signature: ' + name)
         for library in entry['libraries']:
+            if library['name'] == AVFAUDIO and not library['weak']:
+                raise ValueError('AVFAudio install path requires iOS 14.5; use AVFoundation for iOS 6/12')
             dependency = Path(library['name']).name
             if dependency in parsed and library['name'] != '@rpath/' + dependency:
                 raise ValueError('Bundled runtime must load from the app: ' + library['name'])
@@ -210,6 +217,9 @@ def package():
     runtime_names = {binary.name for binary in runtimes}
     for binary in runtimes + [executable]:
         for library in macho(binary.read_bytes(), ARCH)['libraries']:
+            if library['name'] == AVFAUDIO:
+                subprocess.run([str(tools / 'install_name_tool'), '-change', AVFAUDIO,
+                                AVFOUNDATION, str(binary)], check=True)
             name = Path(library['name']).name
             if name in runtime_names and library['name'] != '@rpath/' + name:
                 subprocess.run([str(tools / 'install_name_tool'), '-change', library['name'],

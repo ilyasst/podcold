@@ -51,6 +51,26 @@ class Artifacts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'arm64'):
             self.changed({self.core: old})
 
+    def test_new_audio_framework_path_rejected(self):
+        executable = self.info.rsplit('/', 1)[0] + '/podcold'
+        data = bytearray(artifact.thin(self.files[executable], 'arm64'))
+        position = 32
+        for _ in range(struct.unpack_from('<I', data, 16)[0]):
+            command, size = struct.unpack_from('<II', data, position)
+            if command == 0xc:
+                offset = struct.unpack_from('<I', data, position + 8)[0]
+                start = position + offset
+                end = data.index(0, start, position + size)
+                if data[start:end].decode() == artifact.AVFOUNDATION:
+                    name = artifact.AVFAUDIO.encode() + b'\0'
+                    data[start:position + size] = name.ljust(position + size - start, b'\0')
+                    break
+            position += size
+        else:
+            self.fail('Missing AVFoundation dependency')
+        with self.assertRaisesRegex(ValueError, 'AVFAudio install path'):
+            self.changed({executable: data})
+
     def test_wrong_executable_architecture_rejected(self):
         executable = self.info.rsplit('/', 1)[0] + '/podcold'
         with zipfile.ZipFile(self.legacy) as archive:
