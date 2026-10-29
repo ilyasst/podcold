@@ -29,6 +29,27 @@ python3 scripts/test-device.py --device-model iPod7,1 --install \
 
 Mount the matching Apple developer image first. Rebuild with `PODCOLD_DEVICE_TESTING=0` afterward to generate the normal IPA without the test harness.
 
+### Install through Sileo
+
+Outerheaven also serves a public flat APT source at [the Podcold source](https://outerheaven.caracara-boga.ts.net:10000/podcold/). Add that URL under Sileo's Sources, then install **Podcold (iOS 12)**. Tailscale is not required on the iPod. Installation and launching on the touch 6 still need device verification.
+
+To regenerate the package and source after building the ARM64 IPA:
+
+```bash
+python3 scripts/build-sileo-repo.py
+```
+
+The script verifies the IPA, packages its unchanged signed app into `/Applications/PodcoldLinux.app`, and generates `Packages`, gzip/bzip2 indexes and `Release` checksums under `dist/sileo/`. It uses xz compression for compatibility with older dpkg versions and root ownership for installed files. The package depends on iOS 12 or later and `uikittools`; install/remove scripts refresh only this app's icon registration. User data is not part of the package. The rootful package metadata uses `iphoneos-arm`, as required by the [Theos packaging convention](https://theos.dev/docs/packaging), while its executable and runtime libraries contain ARM64 code. This is not a rootless package.
+
+The default package version is `1.0.0-<git commit count>`. Two older package downloads are retained for clients with cached indexes. Only the generated repository directory is published; toolchains, device backups and the rest of `dist/` are excluded. Tailscale's existing persistent Funnel serves this directory directly, without an additional app server:
+
+```bash
+sudo tailscale funnel --bg --https=10000 --set-path=/podcold \
+    /home/ilyass/Repositories/podcold/dist/sileo
+```
+
+The existing `/feed.xml` proxy stays in place, and the private management interface stays private. The public source address and generated QR code are independent of podcast subscription URLs.
+
 ## Linux ARMv7 build
 
 The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The default build targets iOS 6.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. ARMv7 supports compatible devices on iOS 6–10; use the ARM64 target above for iOS 12. The fork's application sources under `podcold/` are compiled directly.
