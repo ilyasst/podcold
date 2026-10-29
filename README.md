@@ -50,6 +50,8 @@ sudo tailscale funnel --bg --https=10000 --set-path=/podcold \
 
 The existing `/feed.xml` proxy stays in place, and the private management interface stays private. The public source address and generated QR code are independent of podcast subscription URLs.
 
+For reliable large downloads, the source can point package files at a GitHub release while its small indexes stay on Outerheaven. Use `--download-base-url https://github.com/ilyasst/podcold/releases/download/<tag>/` and build with `--output <staging-directory>`. Upload the exact generated `.deb` to that release, verify its public download against the `Packages` SHA256, then publish the staged repository. This writes an absolute HTTPS `Filename` understood by Sileo, preserves package verification, and keeps the source URL unchanged. The landing page also links to the release download. The installed app is identical; this changes its delivery route.
+
 ## Linux ARMv7 build
 
 The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The default build targets iOS 6.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. ARMv7 supports compatible devices on iOS 6–10; use the ARM64 target above for iOS 12. The fork's application sources under `podcold/` are compiled directly.

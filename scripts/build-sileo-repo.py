@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--ipa', type=Path, default=ROOT / 'dist/podcold-linux-arm64-ios12.ipa')
     parser.add_argument('--output', type=Path, default=ROOT / 'dist/sileo')
     parser.add_argument('--base-url', default='https://outerheaven.caracara-boga.ts.net:10000/podcold/')
+    parser.add_argument('--download-base-url', help='HTTPS directory hosting identical .deb files, such as a GitHub release')
     args = parser.parse_args()
     report = artifact.verify(args.ipa)
     if report['architecture'] != 'arm64' or report['minimum_ios'] != '12.0':
@@ -38,6 +39,9 @@ def main():
     base_url = args.base_url.rstrip('/') + '/'
     if urlsplit(base_url).scheme != 'https' or not urlsplit(base_url).hostname:
         parser.error('The source must have an HTTPS URL')
+    download_base = args.download_base_url.rstrip('/') + '/' if args.download_base_url else None
+    if download_base and (urlsplit(download_base).scheme != 'https' or not urlsplit(download_base).hostname):
+        parser.error('Package downloads must have an HTTPS URL')
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='podcold-sileo-', dir=output.parent) as temporary:
         stage = Path(temporary)
@@ -92,6 +96,12 @@ def main():
         deb = repo / 'debs' / ('org.ilyasst.podcold.ios12_' + version + '_iphoneos-arm.deb')
         subprocess.run(['dpkg-deb', '--root-owner-group', '-Zxz', '-z6', '--build', str(package), str(deb)], check=True)
         packages = subprocess.check_output(['dpkg-scanpackages', 'debs', '/dev/null'], cwd=repo)
+        if download_base:
+            # Sileo accepts absolute HTTPS Filename fields. Preserve the package's
+            # size and checksums while bypassing Funnel for the large transfer.
+            packages = '\n'.join('Filename: ' + download_base + Path(line[10:]).name
+                                 if line.startswith('Filename: ') else line
+                                 for line in packages.decode().split('\n')).encode()
         (repo / 'Packages').write_bytes(packages)
         (repo / 'Packages.gz').write_bytes(gzip.compress(packages, mtime=0))
         (repo / 'Packages.bz2').write_bytes(bz2.compress(packages))
@@ -113,7 +123,7 @@ def main():
 <p>In Sileo, open <strong>Sources → +</strong> and add this source:</p>
 <p><code>''' + escape(base_url) + '''</code></p>
 <p>Then install <strong>Podcold (iOS 12)</strong>. This build is for the jailbroken iPod touch 6.</p>
-<p><a href="debs/''' + escape(deb.name) + '''">Download the package</a></p>
+<p><a href="''' + escape((download_base or 'debs/') + deb.name) + '''">Download the package</a></p>
 <p><a href="https://github.com/ilyasst/podcold">Source code</a></p>
 </html>''')
         if (output / 'source-qr.png').exists():
