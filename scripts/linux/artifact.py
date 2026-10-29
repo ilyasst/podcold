@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare, package and inspect the legacy ARMv7 build using stdlib Python."""
+"""Prepare, package and inspect ARMv7/iOS 6 and ARM64/iOS 12 builds."""
 import hashlib
 import json
 import os
@@ -13,25 +13,38 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / '.build-linux'
-IPA = ROOT / 'dist/podcold-linux-armv7.ipa'
+TARGETS = {
+    'armv7': {'cpu': 12, 'subtype': 9, 'minimum': '6.0', 'project': 'project',
+              'runtime': 'runtime', 'ipa': 'podcold-linux-armv7.ipa', 'report': 'linux-build.json'},
+    'arm64': {'cpu': 0x100000c, 'subtype': 0, 'minimum': '12.0', 'project': 'project-arm64',
+              'runtime': 'runtime-arm64', 'ipa': 'podcold-linux-arm64-ios12.ipa', 'report': 'linux-arm64-build.json'},
+}
+ARCH = os.environ.get('PODCOLD_ARCH', 'armv7')
+if ARCH not in TARGETS:
+    raise ValueError('PODCOLD_ARCH must be armv7 or arm64')
+TARGET = TARGETS[ARCH]
+IPA = ROOT / 'dist' / TARGET['ipa']
 
 
-def armv7(data):
+def thin(data, architecture):
+    target = TARGETS[architecture]
     if data[:4] == b'\xca\xfe\xba\xbe':
         for i in range(struct.unpack_from('>I', data, 4)[0]):
             cpu, subtype, offset, size, _ = struct.unpack_from('>iiIII', data, 8 + i * 20)
-            if cpu == 12 and subtype & 255 == 9:
-                return armv7(data[offset:offset + size])
-        raise ValueError('Binary has no ARMv7 slice')
-    if data[:4] != b'\xce\xfa\xed\xfe' or struct.unpack_from('<ii', data, 4) != (12, 9):
-        raise ValueError('Expected a 32-bit ARMv7 Mach-O binary')
+            if cpu == target['cpu'] and subtype & 255 == target['subtype']:
+                return thin(data[offset:offset + size], architecture)
+        raise ValueError('Binary has no ' + architecture + ' slice')
+    magic = b'\xcf\xfa\xed\xfe' if architecture == 'arm64' else b'\xce\xfa\xed\xfe'
+    if data[:4] != magic or struct.unpack_from('<ii', data, 4) != (target['cpu'], target['subtype']):
+        raise ValueError('Expected a ' + architecture + ' Mach-O binary')
     return data
 
 
-def macho(data):
-    data = armv7(data)
+def macho(data, architecture='armv7'):
+    data = thin(data, architecture)
+    is64 = architecture == 'arm64'
     result = {'libraries': [], 'rpaths': [], 'minimum_os': None, 'signed': False, 'symbols': []}
-    position, symtab = 28, None
+    position, symtab = 32 if is64 else 28, None
     for _ in range(struct.unpack_from('<I', data, 16)[0]):
         command, size = struct.unpack_from('<II', data, position)
         if command in (0xc, 0x80000018, 0x8000001f, 0x8000001c):
@@ -44,6 +57,11 @@ def macho(data):
                 result['libraries'].append({'name': name, 'weak': command == 0x80000018})
         elif command == 0x25:
             result['minimum_os'] = struct.unpack_from('<I', data, position + 8)[0]
+        elif command == 0x32:
+            platform, version = struct.unpack_from('<II', data, position + 8)
+            if platform != 2:
+                raise ValueError('Expected the iOS device platform')
+            result['minimum_os'] = version
         elif command == 0x1d:
             result['signed'] = True
         elif command == 2:
@@ -52,7 +70,7 @@ def macho(data):
     if symtab:
         offset, count, strings, string_size = symtab
         for i in range(count):
-            index, kind, _, flags, _ = struct.unpack_from('<IBBHI', data, offset + i * 12)
+            index, kind, _, flags, _ = struct.unpack_from('<IBBHQ' if is64 else '<IBBHI', data, offset + i * (16 if is64 else 12))
             end = data.index(b'\0', strings + index, strings + string_size)
             name = data[strings + index:end].decode()
             result['symbols'].append((name, kind, flags))
@@ -60,7 +78,7 @@ def macho(data):
 
 
 def prepare():
-    project = CACHE / 'project'
+    project = CACHE / TARGET['project']
     project.mkdir(parents=True, exist_ok=True)
     test_mode = '1' if os.environ.get('PODCOLD_DEVICE_TESTING') == '1' else '0'
     mode_file = project / '.device-test-mode'
@@ -70,7 +88,7 @@ def prepare():
         if objects.exists():
             shutil.rmtree(objects)
         mode_file.write_text(test_mode)
-    resources, runtime = project / 'Resources', CACHE / 'runtime'
+    resources, runtime = project / 'Resources', CACHE / TARGET['runtime']
     resources.mkdir(exist_ok=True)
     runtime.mkdir(exist_ok=True)
     source = ROOT / 'podcold/podcold'
@@ -99,7 +117,7 @@ def prepare():
         'CFBundleName': 'Podcold Linux', 'CFBundleDisplayName': 'Podcold Linux',
         'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.0', 'CFBundleVersion': '1',
         'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True,
-        'MinimumOSVersion': '6.0', 'UIRequiredDeviceCapabilities': ['armv7'],
+        'MinimumOSVersion': TARGET['minimum'], 'UIRequiredDeviceCapabilities': [ARCH],
         'UIDeviceFamily': [1, 2], 'UIBackgroundModes': ['audio'], 'UIFileSharingEnabled': True,
         'UISupportedInterfaceOrientations': ['UIInterfaceOrientationPortrait'],
         'CFBundleIconFiles': ['icon-57.png', 'icon-114.png', 'icon-120.png'],
@@ -110,9 +128,9 @@ def prepare():
         for name in original.namelist():
             if '/Frameworks/' in name and name.endswith('.dylib'):
                 output = runtime / Path(name).name
-                output.write_bytes(armv7(original.read(name)))
+                output.write_bytes(thin(original.read(name), ARCH))
                 output.chmod(0o755)
-    print('Prepared original app sources, resources and 18 legacy ARMv7 runtime libraries.')
+    print('Prepared shared app sources, resources and 18 ' + ARCH + ' runtime libraries.')
 
 
 def verify(path):
@@ -122,18 +140,23 @@ def verify(path):
         info_path = next(n for n in archive.namelist() if n.count('/') == 2 and n.endswith('/Info.plist'))
         prefix = info_path.rsplit('/', 1)[0] + '/'
         info = plistlib.loads(archive.read(info_path))
-        if info['CFBundleIdentifier'] != 'org.ilyasst.podcold.linux' or info['MinimumOSVersion'] != '6.0':
+        capabilities = info.get('UIRequiredDeviceCapabilities')
+        architecture = next((a for a in TARGETS if capabilities == [a]), None)
+        if architecture is None:
+            raise ValueError('Incorrect required CPU architecture')
+        target = TARGETS[architecture]
+        if info['CFBundleIdentifier'] != 'org.ilyasst.podcold.linux' or info['MinimumOSVersion'] != target['minimum']:
             raise ValueError('Incorrect test app identity or minimum OS')
         binaries = {info['CFBundleExecutable']: archive.read(prefix + info['CFBundleExecutable'])}
         binaries.update({Path(n).name: archive.read(n) for n in archive.namelist()
                          if n.startswith(prefix + 'Frameworks/') and n.endswith('.dylib')})
-    parsed = {name: macho(data) for name, data in binaries.items()}
+    parsed = {name: macho(data, architecture) for name, data in binaries.items()}
     if len(parsed) != 19:
         raise ValueError('Expected the executable and 18 runtime libraries')
     exports = {name: {symbol for symbol, kind, _ in entry['symbols'] if kind & 1 and kind & 14}
                for name, entry in parsed.items()}
     for name, entry in parsed.items():
-        if entry['minimum_os'] is None or entry['minimum_os'] > 6 << 16:
+        if entry['minimum_os'] is None or entry['minimum_os'] > int(target['minimum'].split('.')[0]) << 16:
             raise ValueError('Minimum OS is too new: ' + name)
         if not entry['signed']:
             raise ValueError('Missing code signature: ' + name)
@@ -145,12 +168,14 @@ def verify(path):
                 if Path(library['name']).name not in parsed:
                     raise ValueError('Missing bundled dependency: ' + library['name'])
     app = parsed[info['CFBundleExecutable']]
-    if any(symbol == '_objc_allocWithZone' and kind & 14 == 0 and not flags & 0x40
+    if app['minimum_os'] != int(target['minimum'].split('.')[0]) << 16:
+        raise ValueError('Executable deployment target does not match package minimum OS')
+    if architecture == 'armv7' and any(symbol == '_objc_allocWithZone' and kind & 14 == 0 and not flags & 0x40
            for symbol, kind, flags in app['symbols']):
         raise ValueError('Missing iOS 6 Objective-C allocation compatibility')
     # Release stripping removes arclite's private symbols; its Objective-C class
     # name survives. Its registration import must be weak on pre-iOS-8 devices.
-    if (b'__ARCLite__\0' not in binaries[info['CFBundleExecutable']] or
+    if architecture == 'armv7' and (b'__ARCLite__\0' not in binaries[info['CFBundleExecutable']] or
             not any(symbol == '_objc_readClassPair' and flags & 0x40
                     for symbol, _, flags in app['symbols'])):
         raise ValueError('Missing libarclite legacy Objective-C runtime compatibility')
@@ -164,18 +189,18 @@ def verify(path):
             name = Path(app['libraries'][ordinal - 1]['name']).name
             if name in exports and symbol not in exports[name]:
                 raise ValueError('Legacy runtime lacks required symbol: ' + symbol)
-    return {'architecture': 'armv7', 'minimum_ios': '6.0', 'bundle_identifier': info['CFBundleIdentifier'],
+    return {'architecture': architecture, 'minimum_ios': target['minimum'], 'bundle_identifier': info['CFBundleIdentifier'],
             'runtime_libraries': len(parsed) - 1, 'notes_link_delegate': True, 'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(),
             'size_bytes': Path(path).stat().st_size, 'device_tested': False}
 
 
 def package():
-    staging = CACHE / 'package'
+    staging = CACHE / ('package' if ARCH == 'armv7' else 'package-arm64')
     if staging.exists():
         shutil.rmtree(staging)
     app = staging / 'Payload/PodcoldLinux.app'
-    shutil.copytree(CACHE / 'project/.theos/obj/podcold.app', app)
-    shutil.copytree(CACHE / 'runtime', app / 'Frameworks')
+    shutil.copytree(CACHE / TARGET['project'] / '.theos/obj/podcold.app', app)
+    shutil.copytree(CACHE / TARGET['runtime'], app / 'Frameworks')
     tools = CACHE / 'toolchain/linux/iphone/bin'
     executable = app / 'podcold'
     # The iOS 6 linker can choose absolute /usr/lib/swift install names even
@@ -184,7 +209,7 @@ def package():
     runtimes = list((app / 'Frameworks').glob('*.dylib'))
     runtime_names = {binary.name for binary in runtimes}
     for binary in runtimes + [executable]:
-        for library in macho(binary.read_bytes())['libraries']:
+        for library in macho(binary.read_bytes(), ARCH)['libraries']:
             name = Path(library['name']).name
             if name in runtime_names and library['name'] != '@rpath/' + name:
                 subprocess.run([str(tools / 'install_name_tool'), '-change', library['name'],
@@ -209,7 +234,7 @@ def package():
     result['theos_commit'] = subprocess.check_output(['git', '-C', str(CACHE / 'theos'), 'rev-parse', 'HEAD'], text=True).strip()
     result['sdk_commit'] = subprocess.check_output(['git', '-C', str(CACHE / 'sdks'), 'rev-parse', 'HEAD'], text=True).strip()
     result['swift_version'] = '5.6.1'
-    (IPA.parent / 'linux-build.json').write_text(json.dumps(result, indent=2) + '\n')
+    (IPA.parent / TARGET['report']).write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=2))
     print('Created ' + str(IPA))
     print('Install and launch on the iPod to confirm runtime compatibility.')

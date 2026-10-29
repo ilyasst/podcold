@@ -3,6 +3,12 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+export PODCOLD_ARCH="${PODCOLD_ARCH:-armv7}"
+case "$PODCOLD_ARCH" in
+    armv7) project_dir=project; minimum_ios=6.0 ;;
+    arm64) project_dir=project-arm64; minimum_ios=12.0 ;;
+    *) echo 'PODCOLD_ARCH must be armv7 or arm64.' >&2; exit 1 ;;
+esac
 for build_tool in docker curl git python3 tar sha256sum; do
     command -v "$build_tool" >/dev/null || { echo "Missing tool: $build_tool" >&2; exit 1; }
 done
@@ -44,15 +50,16 @@ git -C "$cache_root/sdks" sparse-checkout set iPhoneOS15.6.sdk
 python3 scripts/linux/artifact.py prepare
 
 docker build --tag podcold-linux:swift56 --file scripts/linux/Dockerfile scripts/linux
-echo 'Compiling ARMv7 code for iOS 6 and later...'
+echo "Compiling $PODCOLD_ARCH code for iOS $minimum_ios and later..."
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     --pids-limit 256 --memory 4g --cpus 2 --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$repo_root,target=/workspace" \
-    --workdir /workspace/.build-linux/project \
-    --env THEOS=/workspace/.build-linux/theos --env PODCOLD_DEVICE_TESTING podcold-linux:swift56 make -j2
+    --workdir "/workspace/.build-linux/$project_dir" \
+    --env THEOS=/workspace/.build-linux/theos --env PODCOLD_ARCH --env PODCOLD_DEVICE_TESTING podcold-linux:swift56 make -j2
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     --pids-limit 256 --memory 1g --cpus 2 --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$repo_root,target=/workspace" \
     --env PODCOLD_DEBUG \
+    --env PODCOLD_ARCH \
     --env PODCOLD_DEVICE_TESTING \
     podcold-linux:swift56 python3 scripts/linux/artifact.py package

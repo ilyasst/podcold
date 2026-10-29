@@ -2,9 +2,36 @@
 
 Fork of [RousseAddict/podcold](https://github.com/RousseAddict/podcold), a podcast player for legacy iOS devices.
 
+## iOS 12 / iPod touch 6 build
+
+The same sources also compile to a separate ARM64 IPA for iOS 12.0 and later, including the iPod touch 6. This target uses the existing Linux toolchain and the ARM64 slices of the bundled curl, OpenSSL and Swift libraries. It omits the iOS 6 allocation/atomic shims and libarclite. No player features or saved-data formats differ between the targets.
+
+```bash
+PODCOLD_ARCH=arm64 ./scripts/build-linux.sh
+python3 scripts/linux/artifact.py verify dist/podcold-linux-arm64-ios12.ipa
+```
+
+Outputs are `dist/podcold-linux-arm64-ios12.ipa` and `dist/linux-arm64-build.json`. ARM64 intermediates and runtime libraries have their own directories, so this build preserves the ARMv7 IPA and its cache. Both IPAs use bundle ID `org.ilyasst.podcold.linux`, allowing an update to retain this fork's subscriptions, downloads and settings. Use the ARM64 IPA on iOS 12; the ARMv7 IPA cannot run on iOS 11 or later.
+
+The IPA is signed ad hoc for a jailbroken device with AppSync, just like the touch 4 build. Build and static package verification have passed; installation and runtime behavior on the touch 6 are **not yet tested**. The verifier checks the ARM64 architecture and compatible deployment version of all 19 binaries, packaged runtime imports, signatures and notes delegate. Package regression tests reject wrong-architecture libraries/executables, missing runtimes and incorrect target metadata:
+
+```bash
+python3 scripts/tests/test-artifacts.py
+```
+
+Once the jailbroken touch 6 is connected, opt-in device tests can use the new IPA explicitly. Test mode is separate from the normal build:
+
+```bash
+PODCOLD_ARCH=arm64 PODCOLD_DEBUG=1 PODCOLD_DEVICE_TESTING=1 ./scripts/build-linux.sh
+python3 scripts/test-device.py --device-model iPod7,1 --install \
+    --ipa dist/podcold-linux-arm64-ios12.ipa --playlist
+```
+
+Mount the matching Apple developer image first. Rebuild with `PODCOLD_DEVICE_TESTING=0` afterward to generate the normal IPA without the test harness.
+
 ## Linux ARMv7 build
 
-The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The resulting app targets iOS 6.0 and later and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. The fork's application sources under `podcold/` are compiled directly.
+The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The default build targets iOS 6.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. ARMv7 supports compatible devices on iOS 6–10; use the ARM64 target above for iOS 12. The fork's application sources under `podcold/` are compiled directly.
 
 Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, directory search, and adding an RSS feed by URL have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. Native description links, a real 2.8 MB episode download, local playback, and 40 seconds of continued playback while Safari is in front have also passed physical-device checks. Safari loaded the public Podweaver confirmation page; no feedback was submitted.
 

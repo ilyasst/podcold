@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real UIKit search and URL subscriptions on a paired iOS 7 device."""
+"""Exercise UIKit and podcast behavior on a paired iOS device."""
 import argparse
 import json
 import os
@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--device-model', help='Select the only connected device with this ProductType, e.g. iPod4,1')
     parser.add_argument('--playlist', action='store_true', help='Test playlist rules, warm-cache Downloads and local playback without network media')
     parser.add_argument('--install', action='store_true', help='Install the locally built test IPA first')
+    parser.add_argument('--ipa', type=Path, default=ROOT / 'dist/podcold-linux-armv7.ipa',
+                        help='Test IPA to install (use the ARM64 IPA for iOS 12)')
     parser.add_argument('--feed-url', help='Test adding this real podcast feed instead of directory search; original subscriptions are restored')
     parser.add_argument('--notes-playback', action='store_true', help='Test native notes links, download, playback and Safari background audio; requires --feed-url')
     parser.add_argument('--sleep-timer', action='store_true', help='Test sleep presets, end-of-episode, queue preservation and a short background deadline; requires --feed-url')
@@ -66,7 +68,7 @@ def main():
                 pass
 
     if args.install:
-        command(['ideviceinstaller', '-u', udid, 'install', str(ROOT / 'dist/podcold-linux-armv7.ipa')], timeout=120)
+        command(['ideviceinstaller', '-u', udid, 'install', str(args.ipa.resolve())], timeout=120)
         print('Installed test build.', flush=True)
     # Some legacy versions return nonzero after successfully terminating an app.
     command(['idevicedebug', '-u', udid, 'kill', BUNDLE], check=False)
