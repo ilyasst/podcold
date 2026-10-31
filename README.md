@@ -56,7 +56,7 @@ For reliable large downloads, the source can point package files at a GitHub rel
 
 The player can be compiled on x86_64 Linux using a pinned Theos revision, Swift 5.6.1, and the iPhoneOS 15.6 SDK. The default build targets iOS 6.0 and contains ARMv7 code and the legacy Swift runtime extracted from the upstream IPA. ARMv7 supports compatible devices on iOS 6–10; use the ARM64 target above for iOS 12. The fork's application sources under `podcold/` are compiled directly.
 
-Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, directory search, and adding an RSS feed by URL have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. Native description links, a real 2.8 MB episode download, local playback, and 40 seconds of continued playback while Safari is in front have also passed physical-device checks. Safari loaded the public Podweaver confirmation page; no feedback was submitted.
+Build, packaging, USB installation, launch, home-screen rendering, search-field position, keyboard focus, directory search, and adding an RSS feed by URL have been checked on an iPod touch 4 running iOS 7.1.2. The first launch exposed a missing `libarclite` dependency; linking that compatibility library allowed the app to open. The fork fixes the initially blank home screen and keeps the search field below the navigation bar. Native description links, a real 2.8 MB episode download, local playback, and 40 seconds of continued playback while Safari is in front have also passed physical-device checks. Safari loaded the public Paz confirmation page; no feedback was submitted.
 
 A newly jailbroken iPod touch 4 on iOS 6.1.6 has also installed and opened the current app, and passed the playlist scenario: warm-cache Downloads reloads, options, notes, backup restoration and two local episodes playing in order. Its jailbreak uses Legacy iOS Kit's ramdisk workflow and retains iOS 6.1.6. The ad hoc package requires working AppSync on jailbroken devices.
 
@@ -82,11 +82,11 @@ Choose **Add Feed URL** on the empty home screen, or **Search → Add URL** at a
 
 ## Links in episode notes
 
-Episode descriptions preserve tappable HTTP/HTTPS links, including Podweaver’s **More like this**, **Pass on this show**, **Undo**, and **Listened**. Tap a link to open its public page in Safari. Audio can continue while you confirm feedback, then return to Podcold. Opening a page does not submit a preference. Cached feedback links show the current preference on the public page; refreshed feed notes show updated status.
+Episode descriptions preserve tappable HTTP/HTTPS links, including Paz’s **More like this**, **Pass on this show**, **Undo**, and **Listened**. Tap a link to open its public page in Safari. Audio can continue while you confirm feedback, then return to Podcold. Opening a page does not submit a preference. Cached feedback links show the current preference on the public page; refreshed feed notes show updated status.
 
 Notes use a native, read-only text view on iOS 7 and later. On iOS 6, native labels show the text and native buttons open the parsed web links. Labels, paragraphs, lists, HTML entities and relative links are retained. The app does not execute description HTML or JavaScript. Non-web URL schemes are not opened. No embedded browser or new runtime dependency is added.
 
-Episode credits also preserve item-level `itunes:author`, Dublin Core creator, and Atom episode authors. The original author appears as a byline in episode details, as the Now Playing subtitle, and as the lock-screen artist. Saved episodes retain that credit; older saved records without it continue to load. Refresh the feed to obtain newly published author metadata. Podweaver’s notes separately identify the original podcast and author for players that ignore item-level authors.
+Episode credits also preserve item-level `itunes:author`, Dublin Core creator, and Atom episode authors. The original author appears as a byline in episode details, as the Now Playing subtitle, and as the lock-screen artist. Saved episodes retain that credit; older saved records without it continue to load. Refresh the feed to obtain newly published author metadata. Paz’s notes separately identify the original podcast and author for players that ignore item-level authors.
 
 ## Playlist
 
@@ -148,17 +148,17 @@ This scenario exercises the Add URL action, input and keyboard layout, invalid U
 To check notes and the listening flow on the physical device:
 
 ```bash
-python3 scripts/test-device.py --install --notes-playback --feed-url https://example.com/podweaver/feed.xml
+python3 scripts/test-device.py --install --notes-playback --feed-url https://example.com/feed.xml
 ```
 
-Use your real Podweaver feed with a **Listened** link and an audio episode longer than 20 seconds. This opt-in scenario checks rendering fixtures and the actual text-view links, downloads the shortest suitable episode under a temporary identity, starts local playback through the Play button, and invokes the installed link delegate to open Safari. It checks original-author display in episode details, Now Playing and lock-screen metadata, and verifies that playback advances with the app in the background for 40 seconds. It never submits the feedback form. The downloaded test file, recents, progress and queue changes are restored afterward. An interrupted check is recovered on the next launch of a device-test build; the host runner attempts that recovery before returning.
+Use your real Paz feed with a **Listened** link and an audio episode longer than 20 seconds. This opt-in scenario checks rendering fixtures and the actual text-view links, downloads the shortest suitable episode under a temporary identity, starts local playback through the Play button, and invokes the installed link delegate to open Safari. It checks original-author display in episode details, Now Playing and lock-screen metadata, and verifies that playback advances with the app in the background for 40 seconds. It never submits the feedback form. The downloaded test file, recents, progress and queue changes are restored afterward. An interrupted check is recovered on the next launch of a device-test build; the host runner attempts that recovery before returning.
 
 The local report is `.build-linux/device-test/notes-results.json`. `episode-notes.png` shows the native links; `notes-complete.png` captures the final Safari page. The separate feed scenario above verifies subscription entry and restores the original subscription list. See [device validation](docs/device-notes-validation.md) for the recorded scope.
 
 To test the sleep timer with the same temporary download and restoration:
 
 ```bash
-python3 scripts/test-device.py --install --sleep-timer --feed-url https://example.com/podweaver/feed.xml
+python3 scripts/test-device.py --install --sleep-timer --feed-url https://example.com/feed.xml
 ```
 
 This checks the native menu, all three minute presets, Cancel/Turn off, stopping at the real end of an audio file with a queued episode, queue advancement after disabling the timer, and an accelerated eight-second deadline while Safari is in front. The report is `sleep-results.json`. The short deadline checks the same timer code as the presets; it is not a full 60-minute or screen-lock endurance test. The harness holds a temporary background task to report the result after audio pauses; the normal player uses its existing background-audio mode.
@@ -166,7 +166,7 @@ This checks the native menu, all three minute presets, Cancel/Turn off, stopping
 To check automatic arrivals and downloads on the physical device:
 
 ```bash
-python3 scripts/test-device.py --install --auto-episodes --feed-url https://example.com/podweaver/feed.xml
+python3 scripts/test-device.py --install --auto-episodes --feed-url https://example.com/feed.xml
 ```
 
 This uses temporary subscriptions and episode identities to check actual settings controls, bounded first selection, arrival order, duplicate prevention, queue removal, independent switches, the download cap, sharing a manual transfer, refill after a played marker, manual deletion, failed-transfer backoff, and backup compatibility. It downloads the shortest live enclosure twice under isolated identities and restores the original data and any pre-existing backup file. Reports and the settings screenshot are `auto-results.json` and `auto-settings.png`. No feedback is submitted. An interrupted run is restored on the next test-build launch.
