@@ -141,6 +141,14 @@ class AudioPlayer: NSObject {
             name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(itemStalled(_:)),
             name: NSNotification.Name.AVPlayerItemPlaybackStalled, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSyncConflict),
+            name: NSNotification.Name("podcold.sync.conflict"), object: nil)
+    }
+
+    @objc private func handleSyncConflict() {
+        if state == .playing {
+            pause()
+        }
     }
 
     private func setupSession() {
@@ -172,9 +180,7 @@ class AudioPlayer: NSObject {
 
         // Seed the snapshot from what is already on disk, so every view can draw
         // the real slider position and both time labels immediately. resumePosition()
-        // also refuses to hand back a point at the very end of the file — a stored
-        // near-end position used to be seeked to verbatim, which ended the item on
-        // the spot and closed the player as soon as it opened.
+        // also refuses to hand back a point at the very end of the file.
         pendingSeek      = episode.resumePosition()
         currentTime      = pendingSeek
         duration         = episode.totalDuration()
@@ -183,6 +189,31 @@ class AudioPlayer: NSObject {
         post(.playerEpisodeChanged)
         post(.playerTimeChanged)
 
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.fetchState { [weak self] syncState in
+                guard let self = self, self.currentEpisode?.guid == episode.guid else { return }
+                if let s = syncState, let eps = s["episodes"] as? [String: [String: Any]],
+                   let epState = eps[episode.guid], let pos = epState["position_seconds"] as? Double,
+                   let ver = epState["audio_version"] as? String {
+                   
+                    let localVersion = episode.audioVersion ?? ""
+                    if localVersion.isEmpty || localVersion == ver {
+                        if pos > self.pendingSeek {
+                            self.pendingSeek = pos
+                            self.currentTime = pos
+                            episode.savePosition(pos)
+                            self.post(.playerTimeChanged)
+                        }
+                    }
+                }
+                self.continuePlay(episode: episode)
+            }
+        } else {
+            continuePlay(episode: episode)
+        }
+    }
+
+    private func continuePlay(episode: Episode) {
         // If already downloaded, play local file directly — no cert issues
         if let localPath = episode.localPath() {
             startPlayer(url: URL(fileURLWithPath: localPath), episode: episode, isStream: false)
@@ -291,6 +322,16 @@ class AudioPlayer: NSObject {
         player?.play()
         player?.rate = playbackRate
         state = .playing
+        
+        if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
+            let ver = ep.audioVersion ?? ""
+            PlayerSyncClient.shared.postEvent(type: "start", params: [
+                "episode_guid": ep.guid,
+                "audio_version": ver,
+                "position_seconds": currentTime,
+                "duration_seconds": duration
+            ], immediate: true)
+        }
     }
 
     // AVPlayer has its own TLS stack and ignores our certificate bypass, so a
@@ -386,6 +427,13 @@ class AudioPlayer: NSObject {
     func pause() {
         player?.pause()
         state = .paused
+        if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
+            PlayerSyncClient.shared.postEvent(type: "pause", params: [
+                "session_id": PlayerSyncClient.shared.sessionId,
+                "episode_guid": ep.guid,
+                "position_seconds": currentTime
+            ], immediate: true)
+        }
     }
 
     func resume() {
@@ -424,6 +472,14 @@ class AudioPlayer: NSObject {
         }
         player?.seek(to: CMTimeMakeWithSeconds(target, preferredTimescale: 1))
         post(.playerTimeChanged)
+        
+        if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
+            PlayerSyncClient.shared.postEvent(type: "seek", params: [
+                "session_id": PlayerSyncClient.shared.sessionId,
+                "episode_guid": ep.guid,
+                "position_seconds": target
+            ], immediate: true)
+        }
     }
 
     // Remembered even when set while paused — it used to be dropped on the floor,
@@ -445,6 +501,17 @@ class AudioPlayer: NSObject {
         guard !cur.isNaN, cur > 0 else { return }
         ep.recordProgress(cur, duration: duration)
         UserDefaults.standard.synchronize()
+       
+        if PlayerSyncClient.shared.isConfigured {
+            let ver = ep.audioVersion ?? ""
+            PlayerSyncClient.shared.postEvent(type: "checkpoint", params: [
+                "session_id": PlayerSyncClient.shared.sessionId,
+                "episode_guid": ep.guid,
+                "audio_version": ver,
+                "position_seconds": cur,
+                "duration_seconds": duration
+            ], immediate: state == .paused || state == .ended)
+        }
     }
 
     func stop() {
@@ -492,6 +559,15 @@ class AudioPlayer: NSObject {
         let wasPaused = state == .paused
         let deadlineExpired = checkSleepTimer()
         if sleepHere { cancelSleepTimer() }
+        
+        if let ep = currentEpisode, PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "complete", params: [
+                "session_id": PlayerSyncClient.shared.sessionId,
+                "episode_guid": ep.guid,
+                "position_seconds": duration
+            ], immediate: true)
+        }
+        
         if let ep = currentEpisode {
             ep.savePosition(0)
             Episode.markPlayed(guid: ep.guid)

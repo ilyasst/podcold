@@ -87,6 +87,16 @@ class PlayQueue {
         entry.rollingFeed = rollingFeed
         episodes.append(entry)
         save()
+
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_add", params: [
+                "episode_guid": entry.guid,
+                "audio_version": entry.audioVersion ?? "",
+                "before_episode_guid": NSNull(),
+                "origin": rollingFeed != nil ? "automatic" : "manual"
+            ])
+        }
+
         return true
     }
 
@@ -160,13 +170,23 @@ class PlayQueue {
         episodes.removeAll { $0.guid == guid }
         save()
         refillLater()
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
+                "episode_guid": guid
+            ])
+        }
     }
 
     func remove(at index: Int) {
         guard index >= 0, index < episodes.count else { return }
-        episodes.remove(at: index)
+        let ep = episodes.remove(at: index)
         save()
         refillLater()
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
+                "episode_guid": ep.guid
+            ])
+        }
     }
 
     func move(from: Int, to: Int) {
@@ -176,6 +196,14 @@ class PlayQueue {
         let ep = episodes.remove(at: from)
         episodes.insert(ep, at: to)
         save()
+
+        if PlayerSyncClient.shared.isConfigured {
+            let beforeGuid: Any = to + 1 < episodes.count ? episodes[to + 1].guid : NSNull()
+            PlayerSyncClient.shared.postEvent(type: "queue_move", params: [
+                "episode_guid": ep.guid,
+                "before_episode_guid": beforeGuid
+            ])
+        }
     }
 
     // Pops the head. Called by AudioPlayer when an episode finishes.
@@ -184,6 +212,14 @@ class PlayQueue {
         let ep = episodes.removeFirst()
         save()
         refillLater()
+
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_advance", params: [
+                "session_id": PlayerSyncClient.shared.sessionId,
+                "episode_guid": ep.guid
+            ])
+        }
+
         return ep
     }
 

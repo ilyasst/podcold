@@ -1,0 +1,139 @@
+{
+  "state_response": {
+    "revision": 42,
+    "active_session": {
+      "session_id": "sess-xyz",
+      "device_id": "dev-123",
+      "playing": true,
+      "episode_guid": "abc-123",
+      "audio_version": "v2",
+      "position_seconds": 150.5,
+      "duration_seconds": 3600.0
+    },
+    "episodes": {
+      "abc-123": {
+        "episode_guid": "abc-123",
+        "audio_version": "v2",
+        "position_seconds": 150.5,
+        "duration_seconds": 3600.0,
+        "played": false
+      }
+    },
+    "queue": [
+      {
+        "episode_guid": "xyz-789",
+        "audio_version": "v1",
+        "origin": "manual"
+      }
+    ]
+  },
+  "event_requests": {
+    "start": {
+      "event_id": "evt-client-start",
+      "type": "start",
+      "episode_guid": "abc-123",
+      "audio_version": "v2",
+      "position_seconds": 0.0,
+      "duration_seconds": 3600.0,
+      "base_revision": 42
+    },
+    "checkpoint": {
+      "event_id": "evt-client-123",
+      "type": "checkpoint",
+      "session_id": "sess-xyz",
+      "episode_guid": "abc-123",
+      "audio_version": "v2",
+      "position_seconds": 155.0,
+      "duration_seconds": 3600.0,
+      "base_revision": 42
+    },
+    "pause": {
+      "event_id": "evt-client-pause",
+      "type": "pause",
+      "session_id": "sess-xyz",
+      "episode_guid": "abc-123",
+      "position_seconds": 155.0,
+      "base_revision": 42
+    },
+    "seek": {
+      "event_id": "evt-client-seek",
+      "type": "seek",
+      "session_id": "sess-xyz",
+      "episode_guid": "abc-123",
+      "position_seconds": 200.0,
+      "base_revision": 42
+    },
+    "complete": {
+      "event_id": "evt-client-complete",
+      "type": "complete",
+      "session_id": "sess-xyz",
+      "episode_guid": "abc-123",
+      "position_seconds": 3600.0,
+      "base_revision": 42
+    },
+    "set_played": {
+      "event_id": "evt-client-played",
+      "type": "set_played",
+      "episode_guid": "xyz-789",
+      "played": true,
+      "base_revision": 42
+    },
+    "queue_add": {
+      "event_id": "evt-client-qadd",
+      "type": "queue_add",
+      "episode_guid": "new-999",
+      "audio_version": "v1",
+      "before_episode_guid": null,
+      "origin": "manual",
+      "base_revision": 42
+    },
+    "queue_remove": {
+      "event_id": "evt-client-qrem",
+      "type": "queue_remove",
+      "episode_guid": "new-999",
+      "base_revision": 42
+    },
+    "queue_move": {
+      "event_id": "evt-client-qmov",
+      "type": "queue_move",
+      "episode_guid": "xyz-789",
+      "before_episode_guid": "new-999",
+      "base_revision": 42
+    },
+    "queue_advance": {
+      "event_id": "evt-client-qadv",
+      "type": "queue_advance",
+      "session_id": "sess-xyz",
+      "episode_guid": "xyz-789",
+      "base_revision": 42
+    }
+  },
+  "conflict_response": {
+    "conflict": true,
+    "revision": 45,
+    "active_session": null,
+    "episodes": {},
+    "queue": []
+  },
+  "device_pairing_response": {
+    "code": "a1b2c3d4"
+  },
+  "device_pair_response": {
+    "device_id": "dev-123",
+    "credential": "dev-123:secret"
+  },
+  "device_list_response": {
+    "devices": [
+      {
+        "device_id": "dev-123",
+        "label": "My Phone",
+        "created_at": 1699999999.0
+      }
+    ]
+  },
+  "episode_resolver_response": {
+    "title": "Episode 5",
+    "show_title": "My Podcast",
+    "audio_url": "https://example.com/audio/abc-123"
+  }
+}

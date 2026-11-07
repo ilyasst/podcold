@@ -10,6 +10,7 @@ class Episode: NSObject {
     var summary: String = ""
     var artworkUrl: String = ""
     var podcastTitle: String = ""
+    var audioVersion: String?
     // Ownership of this stored playlist or download record.
     var rollingFeed: String?
 
@@ -131,6 +132,14 @@ class Episode: NSObject {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         set.insert(guid)
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+        
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "set_played", params: [
+                "episode_guid": guid,
+                "played": true
+            ])
+        }
+        
         // Defer refill until finishCurrent has advanced the player and removed a
         // completed file, so it cannot race the end-of-episode transition.
         DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
@@ -142,6 +151,13 @@ class Episode: NSObject {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         guard set.remove(guid) != nil else { return }
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+        
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "set_played", params: [
+                "episode_guid": guid,
+                "played": false
+            ])
+        }
     }
 
     // MARK: - Publish date parsing (for sorting the "New Episodes" swim lane)
@@ -191,6 +207,7 @@ class Episode: NSObject {
                                       "pubDate": pubDate, "duration": duration, "summary": summary,
                                       "artworkUrl": artworkUrl, "podcastTitle": podcastTitle]
         record["rollingFeed"] = rollingFeed
+        record["audioVersion"] = audioVersion
         return record
     }
 
@@ -206,6 +223,7 @@ class Episode: NSObject {
         e.artworkUrl   = dict["artworkUrl"]   as? String ?? ""
         e.podcastTitle = dict["podcastTitle"] as? String ?? ""
         e.rollingFeed = dict["rollingFeed"] as? String
+        e.audioVersion = dict["audioVersion"] as? String
         // Records written before guid derivation existed can still carry "".
         // Deriving here keeps them consistent with what FeedParser now produces,
         // so a stored recent/download/queue entry matches the same episode when

@@ -4,6 +4,12 @@ import Foundation
 // AVPlayer remain covered by the opt-in physical-device scenario.
 extension Notification.Name { static let episodeLibraryChanged = Notification.Name("test.library") }
 class AudioPlayer { static let shared = AudioPlayer(); var currentEpisode: Episode? }
+class PlayerSyncClient {
+    static let shared = PlayerSyncClient()
+    var isConfigured = false
+    var sessionId = "test-session"
+    func postEvent(type: String, params: [String: Any]) {}
+}
 class AutoEpisodeManager {
     static let shared = AutoEpisodeManager()
     static let stateKey = "auto_episode_state_v1"
