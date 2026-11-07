@@ -91,10 +91,46 @@ enum LatestEpisodeCache { static func clear() {} }
         PlayQueue.maximumSize = 2
         queue.offerAutomatically(episode("later-arrival"), source: .newEpisode)
         check(queue.episodes.map { $0.guid } == ["d", "pending-0"], "Waiting arrivals have priority over later automatic episodes")
+        testRollingOwnership()
         testBackup()
         testURLs()
         reset()
         print("Passed \(count) persistent playlist, backup and URL checks.")
+    }
+
+    private static func testRollingOwnership() {
+        reset()
+        let feed = "https://example.invalid/rolling.xml"
+        let otherFeed = "https://example.invalid/other.xml"
+        let manual = episode("rolling-test-manual"), oldest = episode("rolling-test-oldest")
+        let latest = episode("rolling-test-latest"), other = episode("rolling-test-other")
+        let queue = PlayQueue.shared
+        PlayQueue.maximumSize = 1
+        check(queue.add(manual), "Fill the ordinary playlist allowance")
+        queue.offerAutomatically(oldest, source: .newEpisode, rollingFeed: feed)
+        queue.offerAutomatically(latest, source: .newEpisode, rollingFeed: feed)
+        queue.offerAutomatically(other, source: .newEpisode, rollingFeed: otherFeed)
+        queue.reload()
+        check(queue.episodes.count == 4, "A rolling window fits beside the ordinary playlist")
+        let windows: [String: Set<String>] = [feed: [latest.guid]]
+        queue.pruneRollingEntries(windows: windows)
+        check(queue.episodes.map { $0.guid } == [manual.guid, latest.guid, other.guid], "Rotate only the owning feed's entries")
+        queue.releaseRollingEntries(feed: feed)
+        queue.pruneRollingEntries(windows: [feed: []])
+        check(queue.contains(guid: latest.guid), "Turning a rolling rule off preserves queued episodes")
+
+        Episode.addToDownloads(manual)
+        Episode.addToDownloads(oldest, rollingFeed: feed)
+        Episode.addToDownloads(latest, rollingFeed: feed)
+        Episode.addToDownloads(other, rollingFeed: otherFeed)
+        Episode.pruneRollingDownloads(windows: windows, playing: oldest.guid)
+        func records() -> [String] {
+            let entries = UserDefaults.standard.array(forKey: Episode.downloadsKey) as? [[String: Any]] ?? []
+            return entries.compactMap { $0["guid"] as? String }
+        }
+        check(records().contains(oldest.guid), "Keep an expired download while it is playing")
+        Episode.pruneRollingDownloads(windows: windows, playing: nil)
+        check(records() == [other.guid, latest.guid, manual.guid], "Rotate download records without touching manual files or other feeds")
     }
 
     private static func testBackup() {

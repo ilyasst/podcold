@@ -284,6 +284,14 @@ struct BackupManager {
                     if let guid = (item["episode"] as? [String: Any])?["guid"] as? String, ids.insert(guid).inserted { items.append(item) }
                 }
                 current["seen"] = seen; current["items"] = items
+                let limits = current["rollingLimits"] as? [String: Int] ?? [:]
+                let importedLimits = imported["rollingLimits"] as? [String: Int] ?? [:]
+                current["rollingLimits"] = limits.merging(importedLimits) { existing, _ in existing }
+                var windows = current["rollingItems"] as? [String: [[String: Any]]] ?? [:]
+                for (feed, window) in imported["rollingItems"] as? [String: [[String: Any]]] ?? [:] where limits[feed] == nil {
+                    windows[feed] = window
+                }
+                current["rollingItems"] = windows
                 ud.set(current, forKey: AutoEpisodeManager.stateKey)
             }
         } else if case .replace = mode {

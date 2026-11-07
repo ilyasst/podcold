@@ -34,6 +34,8 @@
 		BB000001000000000000BC0F /* MiniPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0F /* MiniPlayerBar.swift */; };
 		BB000001000000000000BC0A /* PodcastListVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0A /* PodcastListVC.swift */; };
 		BB000001000000000000BC0B /* SearchVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0B /* SearchVC.swift */; };
+		BB000001000000000000BC2A /* AddFeedVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2A /* AddFeedVC.swift */; };
+		BB000001000000000000BC2B /* FeedQRScannerVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2B /* FeedQRScannerVC.swift */; };
 		BB000001000000000000BC0C /* EpisodeListVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0C /* EpisodeListVC.swift */; };
 		BB000001000000000000BC0D /* EpisodeDetailVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0D /* EpisodeDetailVC.swift */; };
 		BB000001000000000000BC0E /* NowPlayingVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0E /* NowPlayingVC.swift */; };
@@ -112,6 +114,8 @@
 		BB000001000000000000BB0F /* MiniPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerBar.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0A /* PodcastListVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastListVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0B /* SearchVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVC.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB2A /* AddFeedVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFeedVC.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB2B /* FeedQRScannerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedQRScannerVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0C /* EpisodeListVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeListVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0D /* EpisodeDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0E /* NowPlayingVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingVC.swift; sourceTree = "<group>"; };
@@ -277,6 +281,8 @@
 				BB000001000000000000BB24 /* PlaylistVC.swift */,
 				BB000001000000000000BB0A /* PodcastListVC.swift */,
 				BB000001000000000000BB0B /* SearchVC.swift */,
+				BB000001000000000000BB2A /* AddFeedVC.swift */,
+				BB000001000000000000BB2B /* FeedQRScannerVC.swift */,
 				BB000001000000000000BB0C /* EpisodeListVC.swift */,
 				BB000001000000000000BB0D /* EpisodeDetailVC.swift */,
 				BB000001000000000000BB0E /* NowPlayingVC.swift */,
@@ -444,6 +450,8 @@
 					BB000001000000000000BC0F /* MiniPlayerBar.swift in Sources */,
 				BB000001000000000000BC0A /* PodcastListVC.swift in Sources */,
 				BB000001000000000000BC0B /* SearchVC.swift in Sources */,
+				BB000001000000000000BC2A /* AddFeedVC.swift in Sources */,
+				BB000001000000000000BC2B /* FeedQRScannerVC.swift in Sources */,
 				BB000001000000000000BC0C /* EpisodeListVC.swift in Sources */,
 				BB000001000000000000BC0D /* EpisodeDetailVC.swift in Sources */,
 				BB000001000000000000BC0E /* NowPlayingVC.swift in Sources */,
@@ -621,6 +629,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a QR code to enter a podcast feed link.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -649,6 +658,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a QR code to enter a podcast feed link.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (

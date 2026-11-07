@@ -1,6 +1,6 @@
 import UIKit
 
-class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
+class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegate, UIAlertViewDelegate {
     // Read by EpisodeDetailVC to find an already-pushed list for the same feed
     let podcast: Podcast
     private var episodes: [Episode] = []
@@ -208,16 +208,51 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     private func updateSubscribeButton() {
         let purple = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
         if Podcast.isSubscribed(feedUrl: podcast.feedUrl) {
+            let limit = AutoEpisodeManager.rollingLimit(for: podcast.feedUrl)
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: limit.map { "Keep \($0)" } ?? "Keep Latest", style: .plain,
+                target: self, action: #selector(editRollingLimit))
             subscribeButton.setTitle("Subscribed", for: .normal)
             subscribeButton.setTitleColor(UIColor(white: 0.45, alpha: 1), for: .normal)
             subscribeButton.layer.borderColor = UIColor(white: 0.25, alpha: 1).cgColor
             subscribeButton.backgroundColor = .clear
         } else {
+            navigationItem.rightBarButtonItem = nil
             subscribeButton.setTitle("Subscribe", for: .normal)
             subscribeButton.setTitleColor(.white, for: .normal)
             subscribeButton.layer.borderColor = purple.cgColor
             subscribeButton.backgroundColor = purple
         }
+    }
+
+    @objc private func editRollingLimit() {
+        let alert = UIAlertView()
+        alert.title = "Keep Latest Episodes"
+        alert.message = "Download and queue the latest episodes using your Automatic Episodes options. Enter 1–200, or 0 to turn off."
+        alert.alertViewStyle = .plainTextInput
+        alert.delegate = self
+        alert.addButton(withTitle: "Cancel")
+        alert.cancelButtonIndex = 0
+        alert.addButton(withTitle: "Save")
+        alert.textField(at: 0)?.keyboardType = .numberPad
+        alert.textField(at: 0)?.text = String(AutoEpisodeManager.rollingLimit(for: podcast.feedUrl) ?? 50)
+        alert.show()
+    }
+
+    private func enteredRollingLimit(_ alert: UIAlertView) -> Int? {
+        guard let text = alert.textField(at: 0)?.text, let value = Int(text),
+              value == 0 || AutoEpisodeManager.rollingLimitRange.contains(value) else { return nil }
+        return value
+    }
+
+    func alertViewShouldEnableFirstOtherButton(_ alertView: UIAlertView) -> Bool {
+        return enteredRollingLimit(alertView) != nil
+    }
+
+    func alertView(_ alertView: UIAlertView, clickedButtonAt buttonIndex: Int) {
+        guard buttonIndex != alertView.cancelButtonIndex, let value = enteredRollingLimit(alertView) else { return }
+        AutoEpisodeManager.shared.setRollingLimit(value == 0 ? nil : value, for: podcast.feedUrl)
+        updateSubscribeButton()
     }
 
     // The feed is paged locally by re-parsing with a higher cap, so until the
@@ -367,6 +402,9 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
             subs.append(podcast)
         }
         Podcast.saveSubscriptions(subs)
+        if !Podcast.isSubscribed(feedUrl: podcast.feedUrl) {
+            AutoEpisodeManager.shared.setRollingLimit(nil, for: podcast.feedUrl)
+        }
         AutoEpisodeManager.shared.observe(feedURL: podcast.feedUrl, episodes: episodes)
         AutoEpisodeManager.shared.reconcile()
         updateSubscribeButton()

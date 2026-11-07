@@ -124,6 +124,7 @@ def prepare():
         'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True,
         'MinimumOSVersion': TARGET['minimum'], 'UIRequiredDeviceCapabilities': [ARCH],
         'UIDeviceFamily': [1, 2], 'UIBackgroundModes': ['audio'], 'UIFileSharingEnabled': True,
+        'NSCameraUsageDescription': 'Scan a QR code to enter a podcast feed link.',
         'UISupportedInterfaceOrientations': ['UIInterfaceOrientationPortrait'],
         'CFBundleIconFiles': ['icon-57.png', 'icon-114.png', 'icon-120.png'],
     }

@@ -71,28 +71,40 @@ class PlayQueue {
 
     @discardableResult
     func add(_ episode: Episode) -> Bool {
+        return append(episode, rollingFeed: nil)
+    }
+
+    private var hasOrdinaryRoom: Bool {
+        return episodes.lazy.filter { $0.rollingFeed == nil }.count < PlayQueue.maximumSize
+    }
+
+    private func append(_ episode: Episode, rollingFeed: String?) -> Bool {
         guard !contains(guid: episode.guid) else { return true }
-        guard episodes.count < PlayQueue.maximumSize,
+        guard rollingFeed != nil || hasOrdinaryRoom,
               AudioPlayer.shared.currentEpisode?.guid != episode.guid else { return false }
         removePending(guid: episode.guid)
-        episodes.append(episode)
+        let entry = Episode.from(dict: episode.toDict())
+        entry.rollingFeed = rollingFeed
+        episodes.append(entry)
         save()
         return true
     }
 
     // Automatic arrivals wait for room rather than displacing the user's choices.
     // The bounded backlog is independent of feed caches and survives a restart.
-    func offerAutomatically(_ episode: Episode, source: AutomaticSource) {
+    func offerAutomatically(_ episode: Episode, source: AutomaticSource, rollingFeed: String? = nil) {
         fillAvailableSlots()
         guard enabled(source.rawValue), !Episode.isPlayed(guid: episode.guid),
               AudioPlayer.shared.currentEpisode?.guid != episode.guid,
               !contains(guid: episode.guid) else { return }
-        if add(episode) { return }
+        if append(episode, rollingFeed: rollingFeed) { return }
         var pending = pendingAdditions
         if let index = pending.firstIndex(where: { ($0["episode"] as? [String: Any])?["guid"] as? String == episode.guid }) {
             pending[index]["sources"] = (pending[index]["sources"] as? Int ?? 0) | source.rawValue
         } else if pending.count < 200 {
-            pending.append(["episode": episode.toDict(), "sources": source.rawValue])
+            var record = episode.toDict()
+            record.removeValue(forKey: "rollingFeed")
+            pending.append(["episode": record, "sources": source.rawValue])
         }
         pendingAdditions = pending
     }
@@ -120,11 +132,27 @@ class PlayQueue {
             let ep = Episode.from(dict: raw)
             guard !Episode.isPlayed(guid: ep.guid), !contains(guid: ep.guid),
                   AudioPlayer.shared.currentEpisode?.guid != ep.guid else { continue }
-            if episodes.count < PlayQueue.maximumSize { episodes.append(ep); changed = true }
+            if hasOrdinaryRoom { episodes.append(ep); changed = true }
             else { remaining.append(item) }
         }
         pendingAdditions = remaining
         if changed { save() }
+    }
+
+    func pruneRollingEntries(windows: [String: Set<String>]) {
+        let oldCount = episodes.count
+        episodes.removeAll { episode in
+            guard let feed = episode.rollingFeed, let window = windows[feed] else { return false }
+            return !window.contains(episode.guid)
+        }
+        if episodes.count != oldCount { save() }
+    }
+
+    func releaseRollingEntries(feed: String) {
+        let entries = episodes.filter { $0.rollingFeed == feed }
+        guard !entries.isEmpty else { return }
+        for entry in entries { entry.rollingFeed = nil }
+        save()
     }
 
     func remove(guid: String) {

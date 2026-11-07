@@ -54,10 +54,12 @@ class PlaylistSettingsVC: UITableViewController {
     @objc private func downloadsChanged(_ sender: UISwitch) {
         PlayQueue.addDownloads = sender.isOn
         PlayQueue.shared.fillAvailableSlots()
+        AutoEpisodeManager.shared.reconcile()
     }
     @objc private func arrivalsChanged(_ sender: UISwitch) {
         AutoEpisodeManager.queueEnabled = sender.isOn
         PlayQueue.shared.fillAvailableSlots()
+        AutoEpisodeManager.shared.reconcile()
     }
     @objc private func limitChanged(_ sender: UIStepper) {
         PlayQueue.maximumSize = Int(sender.value)
