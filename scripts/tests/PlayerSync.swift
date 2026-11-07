@@ -74,9 +74,15 @@ enum LatestEpisodeCache { static func clear() {} }
         let sync = PlayerSyncClient.shared
 
         // Mock GET
+        var fetchCount = 0
         sync.httpClientGet = { url, headers, completion in
-            let jsonData = try? JSONSerialization.data(withJSONObject: stateResp)
-            completion(jsonData, nil)
+            if url.hasSuffix("/state") {
+                fetchCount += 1
+                let jsonData = try? JSONSerialization.data(withJSONObject: stateResp)
+                completion(jsonData, nil)
+            } else {
+                completion(nil, nil)
+            }
         }
 
         var fetchCompleted = false
@@ -88,13 +94,37 @@ enum LatestEpisodeCache { static func clear() {} }
         check(fetchCompleted, "Fetch state completed")
 
         // Mock POST to validate events against fixture
-        var postedEvent: [String: Any]?
+        var postedEvents: [[String: Any]] = []
+        var postCount = 0
         sync.httpClientPost = { url, headers, body, completion in
-            postedEvent = body
-            completion("{\"revision\": 43}".data(using: .utf8), nil)
+            postedEvents.append(body)
+            postCount += 1
+            if body["type"] as? String == "queue_add" && postCount == 1 {
+                // Simulate conflict for the first queue_add
+                completion("{\"conflict\": true, \"revision\": 45}".data(using: .utf8), nil)
+            } else {
+                completion("{\"revision\": 43}".data(using: .utf8), nil)
+            }
         }
 
-        // Test start event
+        // 1. Test offline queue edit conflict retry
+        postCount = 0
+        postedEvents.removeAll()
+        fetchCount = 0
+        sync.postEvent(type: "queue_add", params: [
+            "episode_guid": "abc-123",
+            "audio_version": "v2",
+            "before_episode_guid": NSNull(),
+            "origin": "manual"
+        ], immediate: true)
+        Thread.sleep(forTimeInterval: 0.1) // let the background queue process the flush and the retry
+
+        check(postedEvents.count >= 2, "Event retried after conflict")
+        check(postedEvents.first?["type"] as? String == "queue_add", "First attempt was queue_add")
+        check(fetchCount == 1, "fetchState was called during conflict resolution")
+
+        // 2. Test start event
+        postedEvents.removeAll()
         sync.postEvent(type: "start", params: [
             "episode_guid": "abc-123",
             "audio_version": "v2",
@@ -102,10 +132,11 @@ enum LatestEpisodeCache { static func clear() {} }
             "duration_seconds": 3600.0
         ], immediate: true)
         Thread.sleep(forTimeInterval: 0.1)
-        check(postedEvent?["type"] as? String == "start", "Posted start event")
-        check(postedEvent?["episode_guid"] as? String == eventReqs["start"]?["episode_guid"] as? String, "Start payload matches fixture")
+        check(postedEvents.last?["type"] as? String == "start", "Posted start event")
+        check(postedEvents.last?["episode_guid"] as? String == eventReqs["start"]?["episode_guid"] as? String, "Start payload matches fixture")
 
-        // Test checkpoint event
+        // 3. Test checkpoint event
+        postedEvents.removeAll()
         sync.postEvent(type: "checkpoint", params: [
             "session_id": sync.sessionId ?? "",
             "episode_guid": "abc-123",
@@ -114,6 +145,6 @@ enum LatestEpisodeCache { static func clear() {} }
             "duration_seconds": 3600.0
         ], immediate: true)
         Thread.sleep(forTimeInterval: 0.1)
-        check(postedEvent?["session_id"] as? String == eventReqs["checkpoint"]?["session_id"] as? String, "Checkpoint payload matches fixture")
+        check(postedEvents.last?["session_id"] as? String == eventReqs["checkpoint"]?["session_id"] as? String, "Checkpoint payload matches fixture")
     }
 }

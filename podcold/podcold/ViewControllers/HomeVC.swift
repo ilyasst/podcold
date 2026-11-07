@@ -17,6 +17,8 @@ class HomeVC: UIViewController {
     private weak var syncTag: UIView?
     private weak var syncCountLabel: UILabel?
 
+    private var handoffEpisode: Episode?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "podcold"
@@ -29,6 +31,49 @@ class HomeVC: UIViewController {
         scrollView = UIScrollView(frame: view.bounds)
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(scrollView)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(syncStateFetched(_:)),
+                                               name: NSNotification.Name("podcold.sync.stateFetched"), object: nil)
+    }
+
+    @objc private func syncStateFetched(_ note: Notification) {
+        guard let response = note.object as? [String: Any],
+              let activeSession = response["active_session"] as? [String: Any],
+              let devId = activeSession["device_id"] as? String,
+              devId != PlayerSyncClient.shared.deviceId,
+              let playing = activeSession["playing"] as? Bool, playing,
+              let guid = activeSession["episode_guid"] as? String else {
+            return
+        }
+
+        let insertOrMoveToTop = { (ep: Episode) in
+            if let idx = self.recentEpisodes.firstIndex(where: { $0.guid == ep.guid }) {
+                self.recentEpisodes.remove(at: idx)
+            }
+            self.recentEpisodes.insert(ep, at: 0)
+        }
+
+        if let existing = self.recentEpisodes.first(where: { $0.guid == guid }) ?? self.upNext.first(where: { $0.1.guid == guid })?.1 {
+            self.handoffEpisode = existing
+            insertOrMoveToTop(existing)
+            self.rebuildLayout()
+            return
+        }
+
+        PlayerSyncClient.shared.resolveEpisode(guid: guid) { metadata in
+            guard let md = metadata else { return }
+            DispatchQueue.main.async {
+                let ep = Episode()
+                ep.guid = guid
+                ep.title = md["title"] as? String ?? "Unknown"
+                ep.podcastTitle = md["show_title"] as? String ?? "Unknown"
+                ep.audioUrl = md["audio_url"] as? String ?? ""
+                ep.duration = ""
+                self.handoffEpisode = ep
+                insertOrMoveToTop(ep)
+                self.rebuildLayout()
+            }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
