@@ -592,7 +592,9 @@ class AudioPlayer: NSObject {
             PlayerSyncClient.shared.postEvent(type: "complete", params: [
                 "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid,
-                "position_seconds": duration
+                "position_seconds": duration,
+                "audio_version": ep.audioVersion ?? "",
+                "duration_seconds": duration
             ], immediate: true)
         }
 

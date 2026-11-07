@@ -148,6 +148,7 @@ class PlayerSyncClient {
                         return
                     }
 
+                    guard !self.pendingEvents.isEmpty else { return }
                     self.pendingEvents.removeFirst()
                     self.savePending()
 
