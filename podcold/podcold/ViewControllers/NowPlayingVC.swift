@@ -283,8 +283,8 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     }
 
     @objc private func playerTimeChanged()  { renderTime() }
-    @objc private func playerStateChanged() { 
-        renderState() 
+    @objc private func playerStateChanged() {
+        renderState()
         let state = AudioPlayer.shared.state
         if state == .ended || state == .paused {
             checkPromptEligibility()

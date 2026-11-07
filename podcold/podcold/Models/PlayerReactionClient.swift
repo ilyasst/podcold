@@ -54,15 +54,17 @@ class PlayerReactionClient {
         let headers = ["Authorization": "Bearer \(cred)"]
         let url = "\(PlayerSyncClient.shared.apiUrl)/reactions"
 
-        httpClientPost(url, headers, payload) { data, error in
+        httpClientPost(url, headers, payload) { [weak self] data, error in
             guard error == nil, let data = data,
                   let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let status = dict["status"] as? String, status == "ok" else {
                 completion?(false, nil)
                 return
             }
-            let updatedVersion = dict["preference_version"] as? String
-            completion?(true, updatedVersion)
+            self?.fetchReactions(episodeGuid: episodeGuid) { response in
+                let updatedVersion = response?["preference_version"] as? String
+                completion?(true, updatedVersion)
+            }
         }
     }
 
@@ -84,16 +86,16 @@ class PlayerReactionClient {
 
 class FeedbackManager {
     static let shared = FeedbackManager()
-    
+
     var currentEpisodeGuid: String?
     var currentPreferenceVersion: String?
     var isEligibleForPrompt: Bool = false
     var promptShown: Bool = false
-    
+
     func isConfigured() -> Bool {
         return PlayerReactionClient.shared.isConfigured
     }
-    
+
     func loadEpisode(guid: String, completion: @escaping (String?) -> Void) {
         currentEpisodeGuid = guid
         promptShown = false
@@ -105,10 +107,10 @@ class FeedbackManager {
             completion(response?["preference"] as? String)
         }
     }
-    
+
     func checkPromptAtNaturalBreak(completion: @escaping (Bool, String) -> Void) {
-        guard let guid = currentEpisodeGuid, isEligibleForPrompt, !promptShown else { return }
-        
+        guard let guid = currentEpisodeGuid, !promptShown, !UserDefaults.standard.bool(forKey: "podcold_prompt_opt_out") else { return }
+
         PlayerReactionClient.shared.fetchReactions(episodeGuid: guid) { [weak self] response in
             guard self?.currentEpisodeGuid == guid else { return }
             if let eligible = response?["eligible_for_prompt"] as? Bool, eligible {
@@ -120,7 +122,7 @@ class FeedbackManager {
             }
         }
     }
-    
+
     func submitReaction(guid: String, action: String, preferenceVersion: String?, completion: @escaping (Bool) -> Void) {
         PlayerReactionClient.shared.postReaction(episodeGuid: guid, action: action, preferenceVersion: preferenceVersion) { [weak self] success, updatedVersion in
             if success, self?.currentEpisodeGuid == guid {
@@ -129,8 +131,13 @@ class FeedbackManager {
             completion(success)
         }
     }
-    
+
     func handlePromptAction(guid: String, action: String) {
-        PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: action)
+        if action == "opt_out" {
+            UserDefaults.standard.set(true, forKey: "podcold_prompt_opt_out")
+            PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: "dismissed")
+        } else {
+            PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: action)
+        }
     }
 }
