@@ -51,6 +51,28 @@ class PlayQueue {
     // UserDefaults key directly (BackupManager import) must tell it to re-read.
     func reload() { episodes = PlayQueue.load(); notifyChange() }
 
+    func syncWithRemote(_ remoteQueue: [[String: Any]], episodesState: [String: [String: Any]]) {
+        var newEpisodes: [Episode] = []
+        for item in remoteQueue {
+            guard let guid = item["episode_guid"] as? String else { continue }
+            // If already in queue, reuse it to preserve cached metadata
+            if let existing = episodes.first(where: { $0.guid == guid }) {
+                newEpisodes.append(existing)
+            } else if let epState = episodesState[guid] {
+                // Construct basic episode from remote metadata
+                let ep = Episode()
+                ep.podcastTitle = epState["show_title"] as? String ?? "Unknown Show"
+                ep.title = epState["title"] as? String ?? "Unknown Title"
+                ep.audioUrl = epState["audio_url"] as? String ?? ""
+                ep.guid = guid
+                ep.audioVersion = item["audio_version"] as? String
+                newEpisodes.append(ep)
+            }
+        }
+        self.episodes = newEpisodes
+        self.save()
+    }
+
     private func save() {
         UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.storageKey)
         notifyChange()
@@ -79,7 +101,22 @@ class PlayQueue {
     }
 
     private func append(_ episode: Episode, rollingFeed: String?) -> Bool {
-        guard !contains(guid: episode.guid) else { return true }
+        if let existing = episodes.first(where: { $0.guid == episode.guid }) {
+            // Deduplicate: if upgrading from automatic to manual, clear rollingFeed and notify server
+            if existing.rollingFeed != nil && rollingFeed == nil {
+                existing.rollingFeed = nil
+                save()
+                if PlayerSyncClient.shared.isConfigured {
+                    PlayerSyncClient.shared.postEvent(type: "queue_add", params: [
+                        "episode_guid": existing.guid,
+                        "audio_version": existing.audioVersion ?? "",
+                        "before_episode_guid": NSNull(),
+                        "origin": "manual"
+                    ])
+                }
+            }
+            return true
+        }
         guard rollingFeed != nil || hasOrdinaryRoom,
               AudioPlayer.shared.currentEpisode?.guid != episode.guid else { return false }
         removePending(guid: episode.guid)
@@ -215,7 +252,7 @@ class PlayQueue {
 
         if PlayerSyncClient.shared.isConfigured {
             PlayerSyncClient.shared.postEvent(type: "queue_advance", params: [
-                "session_id": PlayerSyncClient.shared.sessionId,
+                "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid
             ])
         }

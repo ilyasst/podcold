@@ -128,18 +128,18 @@ class Episode: NSObject {
         return (UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? []).contains(guid)
     }
 
-    static func markPlayed(guid: String) {
+    static func markPlayed(guid: String, sync: Bool = true) {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         set.insert(guid)
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
-        
-        if PlayerSyncClient.shared.isConfigured {
+
+        if sync, PlayerSyncClient.shared.isConfigured {
             PlayerSyncClient.shared.postEvent(type: "set_played", params: [
                 "episode_guid": guid,
                 "played": true
             ])
         }
-        
+
         // Defer refill until finishCurrent has advanced the player and removed a
         // completed file, so it cannot race the end-of-episode transition.
         DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
@@ -147,12 +147,12 @@ class Episode: NSObject {
 
     // Deliberately replaying a finished episode has to undo the marker, or it
     // stays filtered out of the New Episodes lane while it is playing.
-    static func unmarkPlayed(guid: String) {
+    static func unmarkPlayed(guid: String, sync: Bool = true) {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         guard set.remove(guid) != nil else { return }
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
-        
-        if PlayerSyncClient.shared.isConfigured {
+
+        if sync, PlayerSyncClient.shared.isConfigured {
             PlayerSyncClient.shared.postEvent(type: "set_played", params: [
                 "episode_guid": guid,
                 "played": false

@@ -191,26 +191,47 @@ class AudioPlayer: NSObject {
 
         if PlayerSyncClient.shared.isConfigured {
             PlayerSyncClient.shared.fetchState { [weak self] syncState in
-                guard let self = self, self.currentEpisode?.guid == episode.guid else { return }
-                if let s = syncState, let eps = s["episodes"] as? [String: [String: Any]],
-                   let epState = eps[episode.guid], let pos = epState["position_seconds"] as? Double,
-                   let ver = epState["audio_version"] as? String {
-                   
-                    let localVersion = episode.audioVersion ?? ""
-                    if localVersion.isEmpty || localVersion == ver {
-                        if pos > self.pendingSeek {
-                            self.pendingSeek = pos
-                            self.currentTime = pos
-                            episode.savePosition(pos)
-                            self.post(.playerTimeChanged)
+                guard let self = self, let s = syncState else { return }
+
+                // Issue 9: Reconcile ordered queue and played status from fetchState
+                let eps = s["episodes"] as? [String: [String: Any]] ?? [:]
+                if let queue = s["queue"] as? [[String: Any]] {
+                    PlayQueue.shared.syncWithRemote(queue, episodesState: eps)
+                }
+
+                for (guid, epState) in eps {
+                    if let played = epState["played"] as? Bool {
+                        if played {
+                            Episode.markPlayed(guid: guid, sync: false)
+                        } else {
+                            Episode.unmarkPlayed(guid: guid, sync: false)
                         }
                     }
                 }
-                self.continuePlay(episode: episode)
+
+                guard self.currentEpisode?.guid == episode.guid else { return }
+                if let epState = eps[episode.guid], let pos = epState["position_seconds"] as? Double,
+                   let ver = epState["audio_version"] as? String {
+
+                    let localVersion = episode.audioVersion ?? ""
+                    if localVersion.isEmpty || localVersion == ver {
+                        let isReady = self.player?.currentItem?.status == .readyToPlay
+                        let currentPos = isReady ? self.currentTime : self.pendingSeek
+                        if pos > currentPos {
+                            episode.savePosition(pos)
+                            if isReady {
+                                self.seek(to: pos)
+                            } else {
+                                self.pendingSeek = pos
+                                self.currentTime = pos
+                                self.post(.playerTimeChanged)
+                            }
+                        }
+                    }
+                }
             }
-        } else {
-            continuePlay(episode: episode)
         }
+        continuePlay(episode: episode)
     }
 
     private func continuePlay(episode: Episode) {
@@ -263,6 +284,9 @@ class AudioPlayer: NSObject {
                     self.currentEpisode?.recordProgress(cur, duration: self.duration)
                     // Update lock-screen scrubber every 5s — iOS interpolates elapsed in-between
                     self.updateNowPlayingElapsed(cur, duration: self.duration)
+                }
+                if self.progressTick % 15 == 0 {
+                    self.flushPosition()
                 }
                 self.post(.playerTimeChanged)
         }
@@ -322,7 +346,7 @@ class AudioPlayer: NSObject {
         player?.play()
         player?.rate = playbackRate
         state = .playing
-        
+
         if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
             let ver = ep.audioVersion ?? ""
             PlayerSyncClient.shared.postEvent(type: "start", params: [
@@ -429,9 +453,11 @@ class AudioPlayer: NSObject {
         state = .paused
         if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
             PlayerSyncClient.shared.postEvent(type: "pause", params: [
-                "session_id": PlayerSyncClient.shared.sessionId,
+                "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid,
-                "position_seconds": currentTime
+                "audio_version": ep.audioVersion ?? "",
+                "position_seconds": currentTime,
+                "duration_seconds": duration
             ], immediate: true)
         }
     }
@@ -472,12 +498,14 @@ class AudioPlayer: NSObject {
         }
         player?.seek(to: CMTimeMakeWithSeconds(target, preferredTimescale: 1))
         post(.playerTimeChanged)
-        
+
         if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
             PlayerSyncClient.shared.postEvent(type: "seek", params: [
-                "session_id": PlayerSyncClient.shared.sessionId,
+                "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid,
-                "position_seconds": target
+                "audio_version": ep.audioVersion ?? "",
+                "position_seconds": target,
+                "duration_seconds": duration
             ], immediate: true)
         }
     }
@@ -495,22 +523,22 @@ class AudioPlayer: NSObject {
     // Positions are only written on every 5th tick, so tearing the player down
     // without a final write throws away up to 5 s — on closing the mini player,
     // on switching episodes, and on being killed in the background.
-    func flushPosition() {
+    func flushPosition(immediate: Bool = true) {
         guard let ep = currentEpisode, let p = player else { return }
         let cur = CMTimeGetSeconds(p.currentTime())
         guard !cur.isNaN, cur > 0 else { return }
         ep.recordProgress(cur, duration: duration)
         UserDefaults.standard.synchronize()
-       
+
         if PlayerSyncClient.shared.isConfigured {
             let ver = ep.audioVersion ?? ""
             PlayerSyncClient.shared.postEvent(type: "checkpoint", params: [
-                "session_id": PlayerSyncClient.shared.sessionId,
+                "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid,
                 "audio_version": ver,
                 "position_seconds": cur,
                 "duration_seconds": duration
-            ], immediate: state == .paused || state == .ended)
+            ], immediate: immediate)
         }
     }
 
@@ -559,15 +587,15 @@ class AudioPlayer: NSObject {
         let wasPaused = state == .paused
         let deadlineExpired = checkSleepTimer()
         if sleepHere { cancelSleepTimer() }
-        
+
         if let ep = currentEpisode, PlayerSyncClient.shared.isConfigured {
             PlayerSyncClient.shared.postEvent(type: "complete", params: [
-                "session_id": PlayerSyncClient.shared.sessionId,
+                "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid,
                 "position_seconds": duration
             ], immediate: true)
         }
-        
+
         if let ep = currentEpisode {
             ep.savePosition(0)
             Episode.markPlayed(guid: ep.guid)

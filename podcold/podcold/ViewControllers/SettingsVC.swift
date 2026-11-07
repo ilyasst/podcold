@@ -138,7 +138,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             }
             return cell
         }
-        
+
         if indexPath.section == 4 {
             if PlayerSyncClient.shared.isConfigured {
                 cell.textLabel?.text = "Sync configured"
@@ -176,7 +176,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             return
         }
     }
-    
+
     private func handleEnrollment() {
         if PlayerSyncClient.shared.isConfigured {
             PlayerSyncClient.shared.deviceId = nil
@@ -184,11 +184,14 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             tableView.reloadData()
             return
         }
-        
+
         let alert = UIAlertView()
         alert.title = "Enroll Device"
-        alert.message = "Enter your Paz pairing code."
-        alert.alertViewStyle = .plainTextInput
+        alert.message = "Enter Server URL and pairing code."
+        alert.alertViewStyle = .loginAndPasswordInput
+        alert.textField(at: 0)?.placeholder = "https://paz.example.com"
+        alert.textField(at: 1)?.placeholder = "Pairing Code"
+        alert.textField(at: 1)?.isSecureTextEntry = false
         alert.delegate = self
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Enroll")
@@ -276,7 +279,9 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     func alertView(_ alertView: UIAlertView, clickedButtonAt buttonIndex: Int) {
         if alertView.tag == 2 {
-            if buttonIndex == 1, let code = alertView.textField(at: 0)?.text, !code.isEmpty {
+            if buttonIndex == 1, let url = alertView.textField(at: 0)?.text, !url.isEmpty,
+               let code = alertView.textField(at: 1)?.text, !code.isEmpty {
+                PlayerSyncClient.shared.apiUrl = url
                 PlayerSyncClient.shared.enroll(code: code, label: UIDevice.current.name) { [weak self] success, err in
                     DispatchQueue.main.async {
                         if success {
@@ -289,7 +294,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             }
             return
         }
-        
+
         guard alertView.tag == 1, let backup = pendingImport else { return }
         pendingImport = nil
         switch buttonIndex {

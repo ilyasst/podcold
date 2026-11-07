@@ -7,7 +7,7 @@ class AudioPlayer { static let shared = AudioPlayer(); var currentEpisode: Episo
 class PlayerSyncClient {
     static let shared = PlayerSyncClient()
     var isConfigured = false
-    var sessionId = "test-session"
+    var sessionId: String? = "test-session"
     func postEvent(type: String, params: [String: Any]) {}
 }
 class AutoEpisodeManager {
