@@ -25,11 +25,13 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     // MARK: - UITableViewDataSource
 
-    func numberOfSections(in tableView: UITableView) -> Int { return 4 }
+    func numberOfSections(in tableView: UITableView) -> Int { return 5 }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if section == 1 { return 4 }
-        return section == 3 ? 2 : 1
+        if section == 3 { return 2 }
+        if section == 4 { return 1 }
+        return 1
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -37,7 +39,8 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         case 0:  return "Downloads"
         case 1:  return "Automatic Episodes"
         case 2:  return "New Episodes"
-        default: return "Backup & Restore"
+        case 3:  return "Backup & Restore"
+        default: return "Sync"
         }
     }
 
@@ -49,8 +52,10 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             return "Playlist Options controls automatic adding and playlist size. The download limit counts unplayed automatic downloads across all feeds and refills as you finish them. Manual downloads are separate; lowering the limit keeps existing files. First checks use the window below. Feeds refresh on opening and every 45 minutes while active."
         case 2:
             return "How many of a podcast's most recent unplayed episodes can be offered. Once you tap Done on all of them, that podcast stays quiet until it publishes something new."
-        default:
+        case 3:
             return "To migrate to a new device: export, share via email, then copy the .json file to the new device via iTunes/Finder File Sharing and tap Import."
+        default:
+            return "Enroll this device with a Paz pairing code to sync playback state."
         }
     }
 
@@ -121,14 +126,29 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             return cell
         }
 
-        if indexPath.row == 0 {
-            cell.textLabel?.text = "Export backup"
-            let count = Podcast.loadSubscriptions().count
-            cell.detailTextLabel?.text = "\(count) subscription\(count == 1 ? "" : "s")"
-        } else {
-            cell.textLabel?.text = "Import backup"
-            let count = BackupManager.listBackupFiles().count
-            cell.detailTextLabel?.text = count == 0 ? "No files" : "\(count) file\(count == 1 ? "" : "s")"
+        if indexPath.section == 3 {
+            if indexPath.row == 0 {
+                cell.textLabel?.text = "Export backup"
+                let count = Podcast.loadSubscriptions().count
+                cell.detailTextLabel?.text = "\(count) subscription\(count == 1 ? "" : "s")"
+            } else {
+                cell.textLabel?.text = "Import backup"
+                let count = BackupManager.listBackupFiles().count
+                cell.detailTextLabel?.text = count == 0 ? "No files" : "\(count) file\(count == 1 ? "" : "s")"
+            }
+            return cell
+        }
+
+        if indexPath.section == 4 {
+            if PlayerSyncClient.shared.isConfigured {
+                cell.textLabel?.text = "Sync configured"
+                cell.detailTextLabel?.text = "Disconnect"
+                cell.textLabel?.textColor = UIColor(red: 0.2, green: 0.8, blue: 0.2, alpha: 1)
+            } else {
+                cell.textLabel?.text = "Enroll device"
+                cell.detailTextLabel?.text = "Not configured"
+            }
+            return cell
         }
         return cell
     }
@@ -146,9 +166,37 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             AutoEpisodeManager.shared.settingsChanged()
             return
         }
-        guard indexPath.section == 3 else { return }
-        if indexPath.row == 0 { handleExport() }
-        else                  { handleImport() }
+        if indexPath.section == 3 {
+            if indexPath.row == 0 { handleExport() }
+            else                  { handleImport() }
+            return
+        }
+        if indexPath.section == 4 {
+            handleEnrollment()
+            return
+        }
+    }
+
+    private func handleEnrollment() {
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.disconnect()
+            tableView.reloadData()
+            return
+        }
+
+        let alert = UIAlertView()
+        alert.title = "Enroll Device"
+        alert.message = "Enter Server URL and pairing code."
+        alert.alertViewStyle = .loginAndPasswordInput
+        alert.textField(at: 0)?.placeholder = "https://paz.example.com"
+        alert.textField(at: 1)?.placeholder = "Pairing Code"
+        alert.textField(at: 1)?.isSecureTextEntry = false
+        alert.delegate = self
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Enroll")
+        alert.cancelButtonIndex = 0
+        alert.tag = 2
+        alert.show()
     }
 
     // MARK: - Downloads
@@ -229,6 +277,23 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
     // MARK: - UIAlertViewDelegate
 
     func alertView(_ alertView: UIAlertView, clickedButtonAt buttonIndex: Int) {
+        if alertView.tag == 2 {
+            if buttonIndex == 1, let url = alertView.textField(at: 0)?.text, !url.isEmpty,
+               let code = alertView.textField(at: 1)?.text, !code.isEmpty {
+                PlayerSyncClient.shared.apiUrl = url
+                PlayerSyncClient.shared.enroll(code: code, label: UIDevice.current.name) { [weak self] success, err in
+                    DispatchQueue.main.async {
+                        if success {
+                            self?.tableView.reloadData()
+                        } else {
+                            self?.showInfo(title: "Enrollment failed", message: err ?? "Unknown error")
+                        }
+                    }
+                }
+            }
+            return
+        }
+
         guard alertView.tag == 1, let backup = pendingImport else { return }
         pendingImport = nil
         switch buttonIndex {

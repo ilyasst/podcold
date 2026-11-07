@@ -8,6 +8,7 @@ class EpisodeDownloader {
     private class Transfer {
         var progress: Float = 0
         var listeners: [((Float) -> Void, (Bool) -> Void)] = []
+        var rollingFeed: String?
     }
     private static var transfers: [String: Transfer] = [:]
 
@@ -32,22 +33,27 @@ class EpisodeDownloader {
     }
 
     static func download(episode: Episode,
+                         rollingFeed: String? = nil,
                          progress: @escaping (Float) -> Void,
                          completion: @escaping (Bool) -> Void) {
         // All callers use the main thread. A manual request joins an automatic
         // transfer instead of rewriting the same .part file or downloading twice.
         if !Thread.isMainThread {
-            DispatchQueue.main.async { download(episode: episode, progress: progress, completion: completion) }
+            DispatchQueue.main.async {
+                download(episode: episode, rollingFeed: rollingFeed, progress: progress, completion: completion)
+            }
             return
         }
         guard !episode.audioUrl.isEmpty else { completion(false); return }
         if episode.localPath() != nil { completion(true); return }
         if let transfer = transfers[episode.guid] {
+            if rollingFeed == nil { transfer.rollingFeed = nil }
             transfer.listeners.append((progress, completion))
             progress(transfer.progress)
             return
         }
         let transfer = Transfer()
+        transfer.rollingFeed = rollingFeed
         transfer.listeners.append((progress, completion))
         transfers[episode.guid] = transfer
         CurlFetcher.downloadToFile(url: episode.audioUrl, outputPath: episode.localPathForWriting(), progress: { value in
@@ -56,8 +62,10 @@ class EpisodeDownloader {
         }) { ok in
             transfers.removeValue(forKey: episode.guid)
             if ok {
-                Episode.addToDownloads(episode)
-                PlayQueue.shared.offerAutomatically(episode, source: .download)
+                Episode.addToDownloads(episode, rollingFeed: transfer.rollingFeed)
+                if transfer.rollingFeed == nil {
+                    PlayQueue.shared.offerAutomatically(episode, source: .download)
+                }
             }
             // Complete ownership bookkeeping before notifying automatic refill.
             for listener in transfer.listeners { listener.1(ok) }

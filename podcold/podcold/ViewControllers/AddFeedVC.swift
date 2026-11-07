@@ -5,12 +5,17 @@ class AddFeedVC: UIViewController, UITextFieldDelegate {
     private let addButton = UIButton(type: .custom)
     private let statusLabel = UILabel()
     private var loading = false
+    private var scanning = false
     private let purple = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Add Feed URL"
-        if #available(iOS 7.0, *) { edgesForExtendedLayout = [] }
+        if #available(iOS 7.0, *) {
+            edgesForExtendedLayout = []
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: "Scan QR", style: .plain, target: self, action: #selector(scanQR))
+        }
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
         let width = view.bounds.width
         let scroll = UIScrollView(frame: view.bounds)
@@ -60,7 +65,7 @@ class AddFeedVC: UIViewController, UITextFieldDelegate {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        if !loading { urlField.becomeFirstResponder() }
+        if !loading && !scanning { urlField.becomeFirstResponder() }
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -71,9 +76,42 @@ class AddFeedVC: UIViewController, UITextFieldDelegate {
     private func setLoading(_ value: Bool) {
         loading = value
         addButton.isEnabled = !value
+        navigationItem.rightBarButtonItem?.isEnabled = !value
         urlField.isEnabled = !value
         addButton.alpha = value ? 0.6 : 1
         addButton.setTitle(value ? "Checking Feed..." : "Add Feed", for: .normal)
+    }
+
+    @objc private func scanQR() {
+        guard #available(iOS 7.0, *), !loading, !scanning else { return }
+        scanning = true
+        urlField.resignFirstResponder()
+        let scanner = FeedQRScannerVC { [weak self] outcome in
+            guard let self = self else { return }
+            self.scanning = false
+            switch outcome {
+            case .scanned(let payload):
+                self.fillScannedURL(payload)
+            case .unavailable(let message):
+                self.showError(message)
+            case .cancelled:
+                break
+            }
+        }
+        let camera = UINavigationController(rootViewController: scanner)
+        camera.modalPresentationStyle = .fullScreen
+        present(camera, animated: true)
+    }
+
+    private func fillScannedURL(_ payload: String) {
+        let text = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scheme = URL(string: text)?.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https", let url = Podcast.normalizedFeedURL(text) else {
+            showError("This QR code does not contain an HTTP or HTTPS feed link.")
+            return
+        }
+        urlField.text = url
+        statusLabel.text = nil
     }
 
     @objc private func addFeed() {

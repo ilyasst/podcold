@@ -1,6 +1,6 @@
 import UIKit
 
-class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate, UIActionSheetDelegate {
+class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate, UIActionSheetDelegate, UIAlertViewDelegate {
     // The mini bar hides behind this screen. It used to discover that by polling
     // the navigation stack twice a second; now the screen simply says so.
     private(set) static var isOnScreen = false
@@ -16,6 +16,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     private let currentTimeLabel = UILabel()
     private let remainingLabel   = UILabel()
     private let sleepBtn         = UIButton(type: .custom)
+    private let feedbackBtn      = UIButton(type: .custom)
     private let speedBtn         = UIButton(type: .custom)
     private let spinner          = UIActivityIndicatorView(style: .white)
     private let speeds: [Float]  = [1.0, 1.5, 2.0, 0.5]
@@ -202,10 +203,25 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         updateSleepButton()
         y += 52
 
+        feedbackBtn.frame = CGRect(x: 20, y: y, width: w - 40, height: 44)
+        feedbackBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
+        feedbackBtn.accessibilityIdentifier = "feedback-button"
+        feedbackBtn.setTitleColor(UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1), for: .normal)
+        feedbackBtn.setTitle("Feedback", for: .normal)
+        feedbackBtn.addTarget(self, action: #selector(feedbackTapped), for: .touchUpInside)
+        feedbackBtn.isHidden = true
+        headerView.addSubview(feedbackBtn)
+        y += 52
+
         headerView.frame = CGRect(x: 0, y: 0, width: w, height: y)
         tableView.tableHeaderView = headerView
         updateEditButton()
     }
+
+    private var actionSheetGuid: String?
+    private var actionSheetPreferenceVersion: String?
+    private var pendingPassGuid: String?
+    private var pendingPassPreferenceVersion: String?
 
     private func refreshFromCurrentEpisode() {
         guard let ep = AudioPlayer.shared.currentEpisode else { return }
@@ -214,6 +230,21 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         if !ep.artworkUrl.isEmpty { artworkView.load(url: ep.artworkUrl) }
         renderTime()
         renderState()
+
+        feedbackBtn.isHidden = true
+        if FeedbackManager.shared.isConfigured() {
+            FeedbackManager.shared.loadEpisode(guid: ep.guid) { [weak self] pref in
+                DispatchQueue.main.async {
+                    guard self != nil, FeedbackManager.shared.currentEpisodeGuid == ep.guid else { return }
+                    self?.feedbackBtn.isHidden = false
+                    if let p = pref {
+                        self?.feedbackBtn.setTitle("Reaction: \(p.capitalized)", for: .normal)
+                    } else {
+                        self?.feedbackBtn.setTitle("Feedback", for: .normal)
+                    }
+                }
+            }
+        }
     }
 
     // Registered for the whole lifetime of the screen. The four closures this
@@ -230,10 +261,37 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
                        name: .playerStateChanged, object: nil)
         nc.addObserver(self, selector: #selector(playerEpisodeChanged),
                        name: .playerEpisodeChanged, object: nil)
+        nc.addObserver(self, selector: #selector(appWillEnterForeground),
+                       name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @objc private func appWillEnterForeground() {
+        checkPromptEligibility(isForegroundReturn: true)
+    }
+
+    private var promptedGuid: String?
+    private func checkPromptEligibility(isForegroundReturn: Bool = false) {
+        guard !AudioPlayer.shared.isPlaying, view.window != nil else { return }
+        FeedbackManager.shared.checkPromptAtNaturalBreak { [weak self] success, guid in
+            DispatchQueue.main.async {
+                if success, let self = self, FeedbackManager.shared.currentEpisodeGuid == guid {
+                    let alert = UIAlertView(title: "Enjoying this show?", message: "Would you like to give feedback?", delegate: self, cancelButtonTitle: "Not Now", otherButtonTitles: "Feedback", "Never Ask Again")
+                    self.promptedGuid = guid
+                    alert.tag = 4
+                    alert.show()
+                }
+            }
+        }
     }
 
     @objc private func playerTimeChanged()  { renderTime() }
-    @objc private func playerStateChanged() { renderState() }
+    @objc private func playerStateChanged() {
+        renderState()
+        let state = AudioPlayer.shared.state
+        if state == .ended || state == .paused {
+            checkPromptEligibility()
+        }
+    }
 
     // Queue advance: stay on screen, swap the header contents and drop the row.
     @objc private func playerEpisodeChanged() {
@@ -256,6 +314,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         let cur = currentTime, dur = duration
         let newVal = dur > 0 ? Float(min(1, max(0, cur / dur))) : 0
         if slider.value != newVal { slider.value = newVal }
+
         let s = Int(cur)
         guard s != lastDisplayedSecond || dur != lastDisplayedDuration else { return }
         lastDisplayedSecond   = s
@@ -337,17 +396,104 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
                                   cancelButtonTitle: "Cancel", destructiveButtonTitle: nil,
                                   otherButtonTitles: "15 minutes", "30 minutes", "60 minutes", "End of episode", "Turn off")
         sheet.accessibilityIdentifier = "sleep-timer-menu"
+        sheet.tag = 1
+        sheet.show(in: view)
+    }
+
+    @objc private func feedbackTapped() {
+        actionSheetGuid = FeedbackManager.shared.currentEpisodeGuid
+        actionSheetPreferenceVersion = FeedbackManager.shared.currentPreferenceVersion
+        let sheet = UIActionSheet(title: "Feedback", delegate: self,
+                                  cancelButtonTitle: "Cancel", destructiveButtonTitle: nil,
+                                  otherButtonTitles: "More like this", "Pass on this show", "Undo")
+        sheet.accessibilityIdentifier = "feedback-menu"
+        sheet.tag = 2
         sheet.show(in: view)
     }
 
     func actionSheet(_ actionSheet: UIActionSheet, clickedButtonAt buttonIndex: Int) {
-        switch actionSheet.buttonTitle(at: buttonIndex) {
-        case "15 minutes": AudioPlayer.shared.setSleepTimer(seconds: 15 * 60)
-        case "30 minutes": AudioPlayer.shared.setSleepTimer(seconds: 30 * 60)
-        case "60 minutes": AudioPlayer.shared.setSleepTimer(seconds: 60 * 60)
-        case "End of episode": AudioPlayer.shared.sleepAtEndOfEpisode()
-        case "Turn off": AudioPlayer.shared.cancelSleepTimer()
-        default: break
+        if actionSheet.tag == 1 {
+            switch actionSheet.buttonTitle(at: buttonIndex) {
+            case "15 minutes": AudioPlayer.shared.setSleepTimer(seconds: 15 * 60)
+            case "30 minutes": AudioPlayer.shared.setSleepTimer(seconds: 30 * 60)
+            case "60 minutes": AudioPlayer.shared.setSleepTimer(seconds: 60 * 60)
+            case "End of episode": AudioPlayer.shared.sleepAtEndOfEpisode()
+            case "Turn off": AudioPlayer.shared.cancelSleepTimer()
+            default: break
+            }
+        } else if actionSheet.tag == 2 {
+            guard let guid = actionSheetGuid else { return }
+            let prefVer = actionSheetPreferenceVersion
+            let title = actionSheet.buttonTitle(at: buttonIndex)
+            if title == "More like this" {
+                FeedbackManager.shared.submitReaction(guid: guid, action: "more", preferenceVersion: prefVer) { [weak self] success in
+                    DispatchQueue.main.async {
+                        if success {
+                            if FeedbackManager.shared.currentEpisodeGuid == guid {
+                                self?.feedbackBtn.setTitle("Reaction: More", for: .normal)
+                            }
+                        } else {
+                            let alert = UIAlertView(title: "Connection failure", message: nil, delegate: nil, cancelButtonTitle: "OK")
+                            alert.show()
+                        }
+                    }
+                }
+            } else if title == "Pass on this show" {
+                confirmPass(guid: guid, preferenceVersion: prefVer)
+            } else if title == "Undo" {
+                FeedbackManager.shared.submitReaction(guid: guid, action: "undo", preferenceVersion: prefVer) { [weak self] success in
+                    DispatchQueue.main.async {
+                        if success {
+                            if FeedbackManager.shared.currentEpisodeGuid == guid {
+                                self?.feedbackBtn.setTitle("Feedback", for: .normal)
+                            }
+                        } else {
+                            let alert = UIAlertView(title: "Connection failure", message: nil, delegate: nil, cancelButtonTitle: "OK")
+                            alert.show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func confirmPass(guid: String, preferenceVersion: String?) {
+        pendingPassGuid = guid
+        pendingPassPreferenceVersion = preferenceVersion
+        let alert = UIAlertView(title: "Pass on this show?", message: "This removes the show from your Paz mix. You can undo this choice.", delegate: self, cancelButtonTitle: "Cancel", otherButtonTitles: "Pass")
+        alert.tag = 3
+        alert.show()
+    }
+
+    func alertView(_ alertView: UIAlertView, clickedButtonAt buttonIndex: Int) {
+        if alertView.tag == 3 && buttonIndex != alertView.cancelButtonIndex {
+            guard let guid = pendingPassGuid else { return }
+            FeedbackManager.shared.submitReaction(guid: guid, action: "pass", preferenceVersion: pendingPassPreferenceVersion) { [weak self] success in
+                DispatchQueue.main.async {
+                    let title = success ? "Submission successful" : "Connection failure"
+                    let resultAlert = UIAlertView(title: title, message: nil, delegate: nil, cancelButtonTitle: "OK")
+                    resultAlert.show()
+                    if success {
+                        if FeedbackManager.shared.currentEpisodeGuid == guid {
+                            self?.feedbackBtn.setTitle("Reaction: Pass", for: .normal)
+                        }
+                        if AudioPlayer.shared.currentEpisode?.guid == guid {
+                            AudioPlayer.shared.stop()
+                        }
+                    }
+                }
+            }
+        } else if alertView.tag == 4 {
+            guard let guid = promptedGuid else { return }
+            let title = alertView.buttonTitle(at: buttonIndex)
+            if title == "Feedback" {
+                guard FeedbackManager.shared.currentEpisodeGuid == guid else { return }
+                feedbackTapped()
+            } else if title == "Not Now" {
+                FeedbackManager.shared.handlePromptAction(guid: guid, action: "dismissed")
+            } else if title == "Never Ask Again" {
+                FeedbackManager.shared.handlePromptAction(guid: guid, action: "opt_out")
+            }
         }
     }
 

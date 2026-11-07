@@ -28,12 +28,15 @@
 		BB000001000000000000BC04 /* EpisodeDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB04 /* EpisodeDownloader.swift */; };
 		BB000001000000000000BC05 /* Podcast.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB05 /* Podcast.swift */; };
 		BB000001000000000000BC06 /* Episode.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB06 /* Episode.swift */; };
+		BB000001000000000000BC99 /* PlayerSyncClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB99 /* PlayerSyncClient.swift */; };
 		BB000001000000000000BC07 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB07 /* AudioPlayer.swift */; };
 		BB000001000000000000BC08 /* AsyncImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB08 /* AsyncImageView.swift */; };
 		BB000001000000000000BC09 /* PodcastCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB09 /* PodcastCell.swift */; };
 		BB000001000000000000BC0F /* MiniPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0F /* MiniPlayerBar.swift */; };
 		BB000001000000000000BC0A /* PodcastListVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0A /* PodcastListVC.swift */; };
 		BB000001000000000000BC0B /* SearchVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0B /* SearchVC.swift */; };
+		BB000001000000000000BC2A /* AddFeedVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2A /* AddFeedVC.swift */; };
+		BB000001000000000000BC2B /* FeedQRScannerVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2B /* FeedQRScannerVC.swift */; };
 		BB000001000000000000BC0C /* EpisodeListVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0C /* EpisodeListVC.swift */; };
 		BB000001000000000000BC0D /* EpisodeDetailVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0D /* EpisodeDetailVC.swift */; };
 		BB000001000000000000BC0E /* NowPlayingVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0E /* NowPlayingVC.swift */; };
@@ -106,12 +109,15 @@
 		BB000001000000000000BB04 /* EpisodeDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDownloader.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB05 /* Podcast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Podcast.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB06 /* Episode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Episode.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB99 /* PlayerSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSyncClient.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB07 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB08 /* AsyncImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncImageView.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB09 /* PodcastCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCell.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0F /* MiniPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerBar.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0A /* PodcastListVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastListVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0B /* SearchVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVC.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB2A /* AddFeedVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFeedVC.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB2B /* FeedQRScannerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedQRScannerVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0C /* EpisodeListVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeListVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0D /* EpisodeDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0E /* NowPlayingVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingVC.swift; sourceTree = "<group>"; };
@@ -238,6 +244,7 @@
 				BB000001000000000000BB28 /* AutoEpisodeManager.swift */,
 				BB000001000000000000BB05 /* Podcast.swift */,
 				BB000001000000000000BB06 /* Episode.swift */,
+				BB000001000000000000BB99 /* PlayerSyncClient.swift */,
 				BB000001000000000000BB16 /* BackupManager.swift */,
 				BB000001000000000000BB20 /* LatestEpisodeCache.swift */,
 				BB000001000000000000BB21 /* UpNextManager.swift */,
@@ -277,6 +284,8 @@
 				BB000001000000000000BB24 /* PlaylistVC.swift */,
 				BB000001000000000000BB0A /* PodcastListVC.swift */,
 				BB000001000000000000BB0B /* SearchVC.swift */,
+				BB000001000000000000BB2A /* AddFeedVC.swift */,
+				BB000001000000000000BB2B /* FeedQRScannerVC.swift */,
 				BB000001000000000000BB0C /* EpisodeListVC.swift */,
 				BB000001000000000000BB0D /* EpisodeDetailVC.swift */,
 				BB000001000000000000BB0E /* NowPlayingVC.swift */,
@@ -438,12 +447,15 @@
 				BB000001000000000000BC04 /* EpisodeDownloader.swift in Sources */,
 				BB000001000000000000BC05 /* Podcast.swift in Sources */,
 				BB000001000000000000BC06 /* Episode.swift in Sources */,
+				BB000001000000000000BC99 /* PlayerSyncClient.swift in Sources */,
 				BB000001000000000000BC07 /* AudioPlayer.swift in Sources */,
 				BB000001000000000000BC08 /* AsyncImageView.swift in Sources */,
 				BB000001000000000000BC09 /* PodcastCell.swift in Sources */,
 					BB000001000000000000BC0F /* MiniPlayerBar.swift in Sources */,
 				BB000001000000000000BC0A /* PodcastListVC.swift in Sources */,
 				BB000001000000000000BC0B /* SearchVC.swift in Sources */,
+				BB000001000000000000BC2A /* AddFeedVC.swift in Sources */,
+				BB000001000000000000BC2B /* FeedQRScannerVC.swift in Sources */,
 				BB000001000000000000BC0C /* EpisodeListVC.swift in Sources */,
 				BB000001000000000000BC0D /* EpisodeDetailVC.swift in Sources */,
 				BB000001000000000000BC0E /* NowPlayingVC.swift in Sources */,
@@ -621,6 +633,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a QR code to enter a podcast feed link.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -649,6 +662,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a QR code to enter a podcast feed link.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (

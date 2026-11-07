@@ -99,19 +99,38 @@ class UpNextManager {
         refreshing = true
         let podcast = pending.removeFirst()
         onSyncStateChange?()
-        FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
+        let rollingLimit = AutoEpisodeManager.rollingLimit(for: podcast.feedUrl)
+        let complete: ([Episode]) -> Void = { [weak self] episodes in
             guard let self = self else { return }
-            AutoEpisodeManager.shared.observe(feedURL: podcast.feedUrl, episodes: episodes)
+            guard rollingLimit == AutoEpisodeManager.rollingLimit(for: podcast.feedUrl) else {
+                self.processNext()
+                return
+            }
+            if let limit = rollingLimit {
+                AutoEpisodeManager.shared.observeRolling(feedURL: podcast.feedUrl, episodes: episodes, limit: limit)
+            } else {
+                AutoEpisodeManager.shared.observe(feedURL: podcast.feedUrl, episodes: episodes)
+            }
             // Feed order is newest-first, so the window is simply the head of the list.
             let qualifying = episodes.prefix(UpNextManager.maxNewEpisodes).first {
                 !self.inProgressGuids.contains($0.guid) && !Episode.isPlayed(guid: $0.guid)
             }
             LatestEpisodeCache.store(feedUrl: podcast.feedUrl, episode: qualifying)
-            // This batch already paid for the download and the parse, so hand the full
-            // list to EpisodeListCache too — opening the podcast afterwards is then free.
-            EpisodeListCache.store(feedUrl: podcast.feedUrl, episodes: episodes)
+            EpisodeListCache.store(feedUrl: podcast.feedUrl, episodes: Array(episodes.prefix(FeedParser.pageSize)))
             self.onUpdate?()
             self.processNext()
+        }
+        if let limit = rollingLimit {
+            // Rotation requires a validated feed response. A partial XML parse
+            // after a failed refresh must never be used to delete local files.
+            FeedParser.loadPodcast(feedUrl: podcast.feedUrl, limit: max(FeedParser.pageSize, limit)) { [weak self] result in
+                switch result {
+                case .success(let feed): complete(feed.episodes)
+                case .failure: self?.processNext()
+                }
+            }
+        } else {
+            FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title, completion: complete)
         }
     }
 }

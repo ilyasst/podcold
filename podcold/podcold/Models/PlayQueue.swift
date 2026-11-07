@@ -51,7 +51,62 @@ class PlayQueue {
     // UserDefaults key directly (BackupManager import) must tell it to re-read.
     func reload() { episodes = PlayQueue.load(); notifyChange() }
 
+    private var syncGeneration = 0
+
+    func syncWithRemote(_ remoteQueue: [[String: Any]], episodesState: [String: [String: Any]]) {
+        syncGeneration += 1
+        let generation = syncGeneration
+        let group = DispatchGroup()
+        var metadata: [String: [String: Any]] = [:]
+        let remoteIDs = Set(remoteQueue.compactMap { $0["episode_guid"] as? String })
+        for guid in remoteIDs {
+            group.enter()
+            PlayerSyncClient.shared.resolveEpisode(guid: guid) { value in
+                DispatchQueue.main.async {
+                    metadata[guid] = value
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            guard generation == self.syncGeneration else { return }
+            let known = Set(UserDefaults.standard.stringArray(forKey: "paz_sync_queue_guids") ?? [])
+            var entries: [Episode] = []
+            for item in remoteQueue {
+                guard let guid = item["episode_guid"] as? String else { continue }
+                let local = self.episodes.first { $0.guid == guid }
+                let episode: Episode
+                if let value = metadata[guid] {
+                    episode = local ?? Episode()
+                    episode.guid = guid
+                    episode.title = value["title"] as? String ?? episode.title
+                    episode.podcastTitle = value["show_title"] as? String ?? episode.podcastTitle
+                    episode.audioUrl = value["audio_url"] as? String ?? episode.audioUrl
+                    // Keep the stored file's identity until playback checks its rendition.
+                    if episode.audioVersion == nil { episode.audioVersion = item["audio_version"] as? String }
+                } else if let local = local {
+                    episode = local
+                } else {
+                    // Preserve a queued identity through a temporary resolver failure.
+                    episode = Episode()
+                    episode.guid = guid
+                    episode.title = "Episode unavailable"
+                    episode.audioVersion = item["audio_version"] as? String
+                }
+                if item["origin"] as? String == "manual" { episode.rollingFeed = nil }
+                else if episode.rollingFeed == nil { episode.rollingFeed = "remote-automatic" }
+                entries.append(episode)
+            }
+            // Entries that have never been shared belong to this device.
+            entries.append(contentsOf: self.episodes.filter { !known.contains($0.guid) && !remoteIDs.contains($0.guid) })
+            self.episodes = entries
+            UserDefaults.standard.set(Array(remoteIDs), forKey: "paz_sync_queue_guids")
+            self.save()
+        }
+    }
+
     private func save() {
+        syncGeneration += 1
         UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.storageKey)
         notifyChange()
     }
@@ -71,28 +126,65 @@ class PlayQueue {
 
     @discardableResult
     func add(_ episode: Episode) -> Bool {
-        guard !contains(guid: episode.guid) else { return true }
-        guard episodes.count < PlayQueue.maximumSize,
+        return append(episode, rollingFeed: nil)
+    }
+
+    private var hasOrdinaryRoom: Bool {
+        return episodes.lazy.filter { $0.rollingFeed == nil }.count < PlayQueue.maximumSize
+    }
+
+    private func append(_ episode: Episode, rollingFeed: String?) -> Bool {
+        if let existing = episodes.first(where: { $0.guid == episode.guid }) {
+            // Deduplicate: if upgrading from automatic to manual, clear rollingFeed and notify server
+            if existing.rollingFeed != nil && rollingFeed == nil {
+                existing.rollingFeed = nil
+                save()
+                if PlayerSyncClient.shared.isConfigured {
+                    PlayerSyncClient.shared.postEvent(type: "queue_add", params: [
+                        "episode_guid": existing.guid,
+                        "audio_version": existing.audioVersion ?? "",
+                        "before_episode_guid": NSNull(),
+                        "origin": "manual"
+                    ])
+                }
+            }
+            return true
+        }
+        guard rollingFeed != nil || hasOrdinaryRoom,
               AudioPlayer.shared.currentEpisode?.guid != episode.guid else { return false }
         removePending(guid: episode.guid)
-        episodes.append(episode)
+        let entry = Episode.from(dict: episode.toDict())
+        entry.rollingFeed = rollingFeed
+        episodes.append(entry)
         save()
+
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_add", params: [
+                "episode_guid": entry.guid,
+                "audio_version": entry.audioVersion ?? "",
+                "before_episode_guid": NSNull(),
+                "origin": rollingFeed != nil ? "automatic" : "manual"
+            ])
+        }
+
         return true
     }
 
     // Automatic arrivals wait for room rather than displacing the user's choices.
     // The bounded backlog is independent of feed caches and survives a restart.
-    func offerAutomatically(_ episode: Episode, source: AutomaticSource) {
+    func offerAutomatically(_ episode: Episode, source: AutomaticSource, rollingFeed: String? = nil) {
         fillAvailableSlots()
         guard enabled(source.rawValue), !Episode.isPlayed(guid: episode.guid),
               AudioPlayer.shared.currentEpisode?.guid != episode.guid,
               !contains(guid: episode.guid) else { return }
-        if add(episode) { return }
+        if append(episode, rollingFeed: rollingFeed) { return }
         var pending = pendingAdditions
         if let index = pending.firstIndex(where: { ($0["episode"] as? [String: Any])?["guid"] as? String == episode.guid }) {
             pending[index]["sources"] = (pending[index]["sources"] as? Int ?? 0) | source.rawValue
         } else if pending.count < 200 {
-            pending.append(["episode": episode.toDict(), "sources": source.rawValue])
+            var record = episode.toDict()
+            record.removeValue(forKey: "rollingFeed")
+            pending.append(["episode": record, "sources": source.rawValue])
         }
         pendingAdditions = pending
     }
@@ -116,15 +208,53 @@ class PlayQueue {
         var changed = false
         for item in pendingAdditions {
             guard enabled(item["sources"] as? Int ?? 0),
-                  let raw = item["episode"] as? [String: Any] else { continue }
-            let ep = Episode.from(dict: raw)
+                  let dict = item["episode"] as? [String: Any] else { continue }
+            let ep = Episode.from(dict: dict)
             guard !Episode.isPlayed(guid: ep.guid), !contains(guid: ep.guid),
                   AudioPlayer.shared.currentEpisode?.guid != ep.guid else { continue }
-            if episodes.count < PlayQueue.maximumSize { episodes.append(ep); changed = true }
+            if hasOrdinaryRoom {
+                episodes.append(ep)
+                changed = true
+                if PlayerSyncClient.shared.isConfigured {
+                    PlayerSyncClient.shared.postEvent(type: "queue_add", params: [
+                        "episode_guid": ep.guid,
+                        "audio_version": ep.audioVersion ?? "",
+                        "before_episode_guid": NSNull(),
+                        "origin": ep.rollingFeed != nil ? "automatic" : "manual"
+                    ])
+                }
+            }
             else { remaining.append(item) }
         }
         pendingAdditions = remaining
         if changed { save() }
+    }
+
+    func pruneRollingEntries(windows: [String: Set<String>]) {
+        let oldCount = episodes.count
+        var removedGuids: [String] = []
+        episodes.removeAll { episode in
+            guard let feed = episode.rollingFeed, let window = windows[feed] else { return false }
+            let remove = !window.contains(episode.guid)
+            if remove { removedGuids.append(episode.guid) }
+            return remove
+        }
+        if episodes.count != oldCount { save() }
+
+        if PlayerSyncClient.shared.isConfigured {
+            for guid in removedGuids {
+                PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
+                    "episode_guid": guid
+                ])
+            }
+        }
+    }
+
+    func releaseRollingEntries(feed: String) {
+        let entries = episodes.filter { $0.rollingFeed == feed }
+        guard !entries.isEmpty else { return }
+        for entry in entries { entry.rollingFeed = nil }
+        save()
     }
 
     func remove(guid: String) {
@@ -132,13 +262,23 @@ class PlayQueue {
         episodes.removeAll { $0.guid == guid }
         save()
         refillLater()
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
+                "episode_guid": guid
+            ])
+        }
     }
 
     func remove(at index: Int) {
         guard index >= 0, index < episodes.count else { return }
-        episodes.remove(at: index)
+        let ep = episodes.remove(at: index)
         save()
         refillLater()
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
+                "episode_guid": ep.guid
+            ])
+        }
     }
 
     func move(from: Int, to: Int) {
@@ -148,6 +288,14 @@ class PlayQueue {
         let ep = episodes.remove(at: from)
         episodes.insert(ep, at: to)
         save()
+
+        if PlayerSyncClient.shared.isConfigured {
+            let beforeGuid: Any = to + 1 < episodes.count ? episodes[to + 1].guid : NSNull()
+            PlayerSyncClient.shared.postEvent(type: "queue_move", params: [
+                "episode_guid": ep.guid,
+                "before_episode_guid": beforeGuid
+            ])
+        }
     }
 
     // Pops the head. Called by AudioPlayer when an episode finishes.
@@ -156,6 +304,13 @@ class PlayQueue {
         let ep = episodes.removeFirst()
         save()
         refillLater()
+
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
+                "episode_guid": ep.guid
+            ])
+        }
+
         return ep
     }
 

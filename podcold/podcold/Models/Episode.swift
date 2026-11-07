@@ -10,6 +10,9 @@ class Episode: NSObject {
     var summary: String = ""
     var artworkUrl: String = ""
     var podcastTitle: String = ""
+    var audioVersion: String?
+    // Ownership of this stored playlist or download record.
+    var rollingFeed: String?
 
     // MARK: - Identity
     //
@@ -125,10 +128,18 @@ class Episode: NSObject {
         return (UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? []).contains(guid)
     }
 
-    static func markPlayed(guid: String) {
+    static func markPlayed(guid: String, sync: Bool = true) {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         set.insert(guid)
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+
+        if sync, PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "set_played", params: [
+                "episode_guid": guid,
+                "played": true
+            ])
+        }
+
         // Defer refill until finishCurrent has advanced the player and removed a
         // completed file, so it cannot race the end-of-episode transition.
         DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
@@ -136,10 +147,17 @@ class Episode: NSObject {
 
     // Deliberately replaying a finished episode has to undo the marker, or it
     // stays filtered out of the New Episodes lane while it is playing.
-    static func unmarkPlayed(guid: String) {
+    static func unmarkPlayed(guid: String, sync: Bool = true) {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         guard set.remove(guid) != nil else { return }
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+
+        if sync, PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.postEvent(type: "set_played", params: [
+                "episode_guid": guid,
+                "played": false
+            ])
+        }
     }
 
     // MARK: - Publish date parsing (for sorting the "New Episodes" swim lane)
@@ -185,9 +203,12 @@ class Episode: NSObject {
     }
 
     func toDict() -> [String: Any] {
-        return ["guid": guid, "title": title, "author": author, "audioUrl": audioUrl,
-                "pubDate": pubDate, "duration": duration, "summary": summary,
-                "artworkUrl": artworkUrl, "podcastTitle": podcastTitle]
+        var record: [String: Any] = ["guid": guid, "title": title, "author": author, "audioUrl": audioUrl,
+                                      "pubDate": pubDate, "duration": duration, "summary": summary,
+                                      "artworkUrl": artworkUrl, "podcastTitle": podcastTitle]
+        record["rollingFeed"] = rollingFeed
+        record["audioVersion"] = audioVersion
+        return record
     }
 
     static func from(dict: [String: Any]) -> Episode {
@@ -201,6 +222,8 @@ class Episode: NSObject {
         e.summary      = dict["summary"]      as? String ?? ""
         e.artworkUrl   = dict["artworkUrl"]   as? String ?? ""
         e.podcastTitle = dict["podcastTitle"] as? String ?? ""
+        e.rollingFeed = dict["rollingFeed"] as? String
+        e.audioVersion = dict["audioVersion"] as? String
         // Records written before guid derivation existed can still carry "".
         // Deriving here keeps them consistent with what FeedParser now produces,
         // so a stored recent/download/queue entry matches the same episode when
@@ -231,10 +254,12 @@ class Episode: NSObject {
         return arr.map { Episode.from(dict: $0) }.filter { $0.localPath() != nil }
     }
 
-    static func addToDownloads(_ episode: Episode) {
+    static func addToDownloads(_ episode: Episode, rollingFeed: String? = nil) {
         var list = loadAllDownloadRecords()
         list.removeAll { $0.guid == episode.guid }
-        list.insert(episode, at: 0)
+        let record = Episode.from(dict: episode.toDict())
+        record.rollingFeed = rollingFeed
+        list.insert(record, at: 0)
         UserDefaults.standard.set(list.map { $0.toDict() }, forKey: downloadsKey)
     }
 
@@ -242,6 +267,29 @@ class Episode: NSObject {
         var list = loadAllDownloadRecords()
         list.removeAll { $0.guid == guid }
         UserDefaults.standard.set(list.map { $0.toDict() }, forKey: downloadsKey)
+        DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
+    }
+
+    static func pruneRollingDownloads(windows: [String: Set<String>], playing: String?) {
+        let records = loadAllDownloadRecords()
+        let expired = records.filter { episode in
+            guard episode.guid != playing, let feed = episode.rollingFeed, let window = windows[feed] else { return false }
+            return !window.contains(episode.guid)
+        }
+        guard !expired.isEmpty else { return }
+        let expiredIDs = Set(expired.map { $0.guid })
+        let retainedPaths = Set(records.filter { !expiredIDs.contains($0.guid) }.map { $0.localPathForWriting() })
+        var removed = Set<String>()
+        for episode in expired {
+            if let path = episode.localPath(), !retainedPaths.contains(path) {
+                do { try FileManager.default.removeItem(atPath: path) }
+                catch { continue }
+            }
+            removed.insert(episode.guid)
+        }
+        guard !removed.isEmpty else { return }
+        let kept = records.filter { !removed.contains($0.guid) }
+        UserDefaults.standard.set(kept.map { $0.toDict() }, forKey: downloadsKey)
         DispatchQueue.main.async { NotificationCenter.default.post(name: .episodeLibraryChanged, object: nil) }
     }
 

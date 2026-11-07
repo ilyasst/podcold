@@ -124,6 +124,7 @@ def prepare():
         'CFBundleSupportedPlatforms': ['iPhoneOS'], 'LSRequiresIPhoneOS': True,
         'MinimumOSVersion': TARGET['minimum'], 'UIRequiredDeviceCapabilities': [ARCH],
         'UIDeviceFamily': [1, 2], 'UIBackgroundModes': ['audio'], 'UIFileSharingEnabled': True,
+        'NSCameraUsageDescription': 'Scan a QR code to enter a podcast feed link.',
         'UISupportedInterfaceOrientations': ['UIInterfaceOrientationPortrait'],
         'CFBundleIconFiles': ['icon-57.png', 'icon-114.png', 'icon-120.png'],
     }
@@ -240,7 +241,10 @@ def package():
                 archive.write(file, file.relative_to(staging))
     result = verify(IPA)
     result['debuggable'] = debug
-    result['source_commit'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+    try:
+        result['source_commit'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+    except subprocess.CalledProcessError:
+        result['source_commit'] = os.environ.get('PODCOLD_COMMIT', 'unknown')
     result['theos_commit'] = subprocess.check_output(['git', '-C', str(CACHE / 'theos'), 'rev-parse', 'HEAD'], text=True).strip()
     result['sdk_commit'] = subprocess.check_output(['git', '-C', str(CACHE / 'sdks'), 'rev-parse', 'HEAD'], text=True).strip()
     result['swift_version'] = '5.6.1'

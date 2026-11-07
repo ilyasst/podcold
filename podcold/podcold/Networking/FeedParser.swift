@@ -29,21 +29,23 @@ class FeedParser: NSObject, XMLParserDelegate {
         let episodes: [Episode]
     }
 
-    static func loadPodcast(feedUrl: String, completion: @escaping (Result<PodcastFeed, Error>) -> Void) {
+    static func loadPodcast(feedUrl: String, limit: Int = pageSize,
+                            completion: @escaping (Result<PodcastFeed, Error>) -> Void) {
         CurlFetcher.fetchFeed(url: feedUrl) { data in
             guard let data = data else {
                 completion(.failure(feedError("Could not download the feed. Check the link and your connection.")))
                 return
             }
             parseQueue.async {
-                let result = parsePodcast(data: data, feedUrl: feedUrl)
+                let result = parsePodcast(data: data, feedUrl: feedUrl, limit: limit)
                 DispatchQueue.main.async { completion(result) }
             }
         }
     }
 
-    static func parsePodcast(data: Data, feedUrl: String) -> Result<PodcastFeed, Error> {
+    static func parsePodcast(data: Data, feedUrl: String, limit: Int = pageSize) -> Result<PodcastFeed, Error> {
         let p = FeedParser()
+        p.limit = limit
         let xml = XMLParser(data: data)
         xml.shouldResolveExternalEntities = false
         xml.delegate = p

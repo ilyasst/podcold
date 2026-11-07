@@ -17,6 +17,8 @@ class HomeVC: UIViewController {
     private weak var syncTag: UIView?
     private weak var syncCountLabel: UILabel?
 
+    private var handoffEpisode: Episode?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "podcold"
@@ -29,6 +31,50 @@ class HomeVC: UIViewController {
         scrollView = UIScrollView(frame: view.bounds)
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(scrollView)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(syncStateFetched(_:)),
+                                               name: NSNotification.Name("podcold.sync.stateFetched"), object: nil)
+    }
+
+    @objc private func syncStateFetched(_ note: Notification) {
+        guard let response = note.object as? [String: Any],
+              let activeSession = response["active_session"] as? [String: Any],
+              let devId = activeSession["device_id"] as? String,
+              devId != PlayerSyncClient.shared.deviceId,
+              let guid = activeSession["episode_guid"] as? String else {
+            return
+        }
+
+        let states = response["episodes"] as? [String: [String: Any]] ?? [:]
+        guard states[guid]?["played"] as? Bool != true else { return }
+        let insertOrMoveToTop = { (ep: Episode) in
+            ep.audioVersion = activeSession["audio_version"] as? String
+            if let position = activeSession["position_seconds"] as? Double { ep.savePosition(position) }
+            if let duration = activeSession["duration_seconds"] as? Double { ep.saveDuration(duration) }
+            var recents = Episode.loadRecents().filter { $0.guid != ep.guid }
+            recents.insert(ep, at: 0)
+            Episode.saveRecents(recents)
+            if let idx = self.recentEpisodes.firstIndex(where: { $0.guid == ep.guid }) {
+                self.recentEpisodes.remove(at: idx)
+            }
+            self.recentEpisodes.insert(ep, at: 0)
+        }
+
+        PlayerSyncClient.shared.resolveEpisode(guid: guid) { metadata in
+            guard let md = metadata else { return }
+            DispatchQueue.main.async {
+                let ep = Episode()
+                ep.guid = guid
+                ep.title = md["title"] as? String ?? "Unknown"
+                ep.podcastTitle = md["show_title"] as? String ?? "Unknown"
+                ep.audioUrl = md["audio_url"] as? String ?? ""
+                ep.audioVersion = md["audio_version"] as? String
+                ep.duration = ""
+                self.handoffEpisode = ep
+                insertOrMoveToTop(ep)
+                self.rebuildLayout()
+            }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {

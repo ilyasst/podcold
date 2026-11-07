@@ -92,6 +92,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     override var canBecomeFirstResponder: Bool { return true }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        if PlayerSyncClient.shared.isConfigured {
+            PlayerSyncClient.shared.beginSyncing()
+        }
         AutoEpisodeManager.shared.becameActive()
         AudioPlayer.shared.checkSleepTimer()
         becomeFirstResponder()
