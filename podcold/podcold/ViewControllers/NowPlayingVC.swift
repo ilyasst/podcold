@@ -218,10 +218,10 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         updateEditButton()
     }
 
-    private var currentPreferenceVersion: String?
-    private var currentReactionGuid: String?
-    private var currentPromptEligible = false
-    private var promptShown = false
+    private var actionSheetGuid: String?
+    private var actionSheetPreferenceVersion: String?
+    private var pendingPassGuid: String?
+    private var pendingPassPreferenceVersion: String?
 
     private func refreshFromCurrentEpisode() {
         guard let ep = AudioPlayer.shared.currentEpisode else { return }
@@ -232,25 +232,15 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         renderState()
 
         feedbackBtn.isHidden = true
-        currentReactionGuid = ep.guid
-        currentPromptEligible = false
-        promptShown = false
-        if PlayerReactionClient.shared.isConfigured {
-            PlayerReactionClient.shared.fetchReactions(episodeGuid: ep.guid) { [weak self] response in
+        if FeedbackManager.shared.isConfigured() {
+            FeedbackManager.shared.loadEpisode(guid: ep.guid) { [weak self] pref in
                 DispatchQueue.main.async {
-                    guard let self = self, self.currentReactionGuid == ep.guid else { return }
-                    self.feedbackBtn.isHidden = false
-
-                    if let pref = response?["preference"] as? String {
-                        self.feedbackBtn.setTitle("Reaction: \(pref.capitalized)", for: .normal)
+                    guard self != nil, FeedbackManager.shared.currentEpisodeGuid == ep.guid else { return }
+                    self?.feedbackBtn.isHidden = false
+                    if let p = pref {
+                        self?.feedbackBtn.setTitle("Reaction: \(p.capitalized)", for: .normal)
                     } else {
-                        self.feedbackBtn.setTitle("Feedback", for: .normal)
-                    }
-
-                    self.currentPreferenceVersion = response?["preference_version"] as? String
-
-                    if let eligible = response?["eligible_for_prompt"] as? Bool {
-                        self.currentPromptEligible = eligible
+                        self?.feedbackBtn.setTitle("Feedback", for: .normal)
                     }
                 }
             }
@@ -271,10 +261,35 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
                        name: .playerStateChanged, object: nil)
         nc.addObserver(self, selector: #selector(playerEpisodeChanged),
                        name: .playerEpisodeChanged, object: nil)
+        nc.addObserver(self, selector: #selector(appWillEnterForeground),
+                       name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @objc private func appWillEnterForeground() {
+        checkPromptEligibility(isForegroundReturn: true)
+    }
+
+    private func checkPromptEligibility(isForegroundReturn: Bool = false) {
+        FeedbackManager.shared.checkPromptAtNaturalBreak { [weak self] success, guid in
+            DispatchQueue.main.async {
+                if success, let self = self, FeedbackManager.shared.currentEpisodeGuid == guid {
+                    let alert = UIAlertView(title: "Enjoying this show?", message: "Would you like to give feedback?", delegate: self, cancelButtonTitle: "Not Now", otherButtonTitles: "Feedback", "Never Ask Again")
+                    alert.tag = 4
+                    alert.show()
+                    FeedbackManager.shared.handlePromptAction(guid: guid, action: "shown")
+                }
+            }
+        }
     }
 
     @objc private func playerTimeChanged()  { renderTime() }
-    @objc private func playerStateChanged() { renderState() }
+    @objc private func playerStateChanged() { 
+        renderState() 
+        let state = AudioPlayer.shared.state
+        if state == .ended || state == .paused {
+            checkPromptEligibility()
+        }
+    }
 
     // Queue advance: stay on screen, swap the header contents and drop the row.
     @objc private func playerEpisodeChanged() {
@@ -297,16 +312,6 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         let cur = currentTime, dur = duration
         let newVal = dur > 0 ? Float(min(1, max(0, cur / dur))) : 0
         if slider.value != newVal { slider.value = newVal }
-
-        if currentPromptEligible && !promptShown && dur > 0 && cur >= dur * 0.95 {
-            promptShown = true
-            let alert = UIAlertView(title: "Enjoying this show?", message: "Would you like to give feedback?", delegate: self, cancelButtonTitle: "Not Now", otherButtonTitles: "Feedback")
-            alert.tag = 4
-            alert.show()
-            if let guid = currentReactionGuid {
-                PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: "shown")
-            }
-        }
 
         let s = Int(cur)
         guard s != lastDisplayedSecond || dur != lastDisplayedDuration else { return }
@@ -394,6 +399,8 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     }
 
     @objc private func feedbackTapped() {
+        actionSheetGuid = FeedbackManager.shared.currentEpisodeGuid
+        actionSheetPreferenceVersion = FeedbackManager.shared.currentPreferenceVersion
         let sheet = UIActionSheet(title: "Feedback", delegate: self,
                                   cancelButtonTitle: "Cancel", destructiveButtonTitle: nil,
                                   otherButtonTitles: "More like this", "Pass on this show", "Undo")
@@ -413,13 +420,16 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
             default: break
             }
         } else if actionSheet.tag == 2 {
-            guard let guid = currentReactionGuid else { return }
+            guard let guid = actionSheetGuid else { return }
+            let prefVer = actionSheetPreferenceVersion
             let title = actionSheet.buttonTitle(at: buttonIndex)
             if title == "More like this" {
-                PlayerReactionClient.shared.postReaction(episodeGuid: guid, action: "more", preferenceVersion: currentPreferenceVersion) { [weak self] success in
+                FeedbackManager.shared.submitReaction(guid: guid, action: "more", preferenceVersion: prefVer) { [weak self] success in
                     DispatchQueue.main.async {
                         if success {
-                            self?.feedbackBtn.setTitle("Reaction: More", for: .normal)
+                            if FeedbackManager.shared.currentEpisodeGuid == guid {
+                                self?.feedbackBtn.setTitle("Reaction: More", for: .normal)
+                            }
                         } else {
                             let alert = UIAlertView(title: "Connection failure", message: nil, delegate: nil, cancelButtonTitle: "OK")
                             alert.show()
@@ -427,12 +437,14 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
                     }
                 }
             } else if title == "Pass on this show" {
-                confirmPass(guid: guid)
+                confirmPass(guid: guid, preferenceVersion: prefVer)
             } else if title == "Undo" {
-                PlayerReactionClient.shared.postReaction(episodeGuid: guid, action: "undo", preferenceVersion: currentPreferenceVersion) { [weak self] success in
+                FeedbackManager.shared.submitReaction(guid: guid, action: "undo", preferenceVersion: prefVer) { [weak self] success in
                     DispatchQueue.main.async {
                         if success {
-                            self?.feedbackBtn.setTitle("Feedback", for: .normal)
+                            if FeedbackManager.shared.currentEpisodeGuid == guid {
+                                self?.feedbackBtn.setTitle("Feedback", for: .normal)
+                            }
                         } else {
                             let alert = UIAlertView(title: "Connection failure", message: nil, delegate: nil, cancelButtonTitle: "OK")
                             alert.show()
@@ -443,32 +455,41 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         }
     }
 
-    private func confirmPass(guid: String) {
-        let alert = UIAlertView(title: "Pass on this show?", message: "You'll skip the rest of this episode.", delegate: self, cancelButtonTitle: "Cancel", otherButtonTitles: "Pass")
+    private func confirmPass(guid: String, preferenceVersion: String?) {
+        pendingPassGuid = guid
+        pendingPassPreferenceVersion = preferenceVersion
+        let alert = UIAlertView(title: "Pass on this show?", message: "You'll skip the rest of this episode and hear less of this show in your mix.", delegate: self, cancelButtonTitle: "Cancel", otherButtonTitles: "Pass")
         alert.tag = 3
         alert.show()
     }
 
     func alertView(_ alertView: UIAlertView, clickedButtonAt buttonIndex: Int) {
         if alertView.tag == 3 && buttonIndex != alertView.cancelButtonIndex {
-            guard let guid = currentReactionGuid else { return }
-            PlayerReactionClient.shared.postReaction(episodeGuid: guid, action: "pass", preferenceVersion: currentPreferenceVersion) { [weak self] success in
+            guard let guid = pendingPassGuid else { return }
+            FeedbackManager.shared.submitReaction(guid: guid, action: "pass", preferenceVersion: pendingPassPreferenceVersion) { [weak self] success in
                 DispatchQueue.main.async {
                     let title = success ? "Submission successful" : "Connection failure"
                     let resultAlert = UIAlertView(title: title, message: nil, delegate: nil, cancelButtonTitle: "OK")
                     resultAlert.show()
                     if success {
-                        self?.feedbackBtn.setTitle("Reaction: Pass", for: .normal)
-                        AudioPlayer.shared.stop()
+                        if FeedbackManager.shared.currentEpisodeGuid == guid {
+                            self?.feedbackBtn.setTitle("Reaction: Pass", for: .normal)
+                        }
+                        if AudioPlayer.shared.currentEpisode?.guid == guid {
+                            AudioPlayer.shared.stop()
+                        }
                     }
                 }
             }
         } else if alertView.tag == 4 {
-            guard let guid = currentReactionGuid else { return }
-            if buttonIndex != alertView.cancelButtonIndex {
+            guard let guid = FeedbackManager.shared.currentEpisodeGuid else { return }
+            let title = alertView.buttonTitle(at: buttonIndex)
+            if title == "Feedback" {
                 feedbackTapped()
-            } else {
-                PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: "dismissed")
+            } else if title == "Not Now" {
+                FeedbackManager.shared.handlePromptAction(guid: guid, action: "dismissed")
+            } else if title == "Never Ask Again" {
+                FeedbackManager.shared.handlePromptAction(guid: guid, action: "opt_out")
             }
         }
     }

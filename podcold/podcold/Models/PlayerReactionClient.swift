@@ -39,8 +39,8 @@ class PlayerReactionClient {
         }
     }
 
-    func postReaction(episodeGuid: String, action: String, preferenceVersion: String?, completion: ((Bool) -> Void)? = nil) {
-        guard isConfigured, let cred = PlayerSyncClient.shared.credential else { completion?(false); return }
+    func postReaction(episodeGuid: String, action: String, preferenceVersion: String?, completion: ((Bool, String?) -> Void)? = nil) {
+        guard isConfigured, let cred = PlayerSyncClient.shared.credential else { completion?(false, nil); return }
 
         var payload: [String: Any] = [
             "event_id": UUID().uuidString,
@@ -58,10 +58,11 @@ class PlayerReactionClient {
             guard error == nil, let data = data,
                   let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let status = dict["status"] as? String, status == "ok" else {
-                completion?(false)
+                completion?(false, nil)
                 return
             }
-            completion?(true)
+            let updatedVersion = dict["preference_version"] as? String
+            completion?(true, updatedVersion)
         }
     }
 
@@ -78,5 +79,58 @@ class PlayerReactionClient {
         let url = "\(PlayerSyncClient.shared.apiUrl)/prompts"
 
         httpClientPost(url, headers, payload) { _, _ in }
+    }
+}
+
+class FeedbackManager {
+    static let shared = FeedbackManager()
+    
+    var currentEpisodeGuid: String?
+    var currentPreferenceVersion: String?
+    var isEligibleForPrompt: Bool = false
+    var promptShown: Bool = false
+    
+    func isConfigured() -> Bool {
+        return PlayerReactionClient.shared.isConfigured
+    }
+    
+    func loadEpisode(guid: String, completion: @escaping (String?) -> Void) {
+        currentEpisodeGuid = guid
+        promptShown = false
+        isEligibleForPrompt = false
+        PlayerReactionClient.shared.fetchReactions(episodeGuid: guid) { [weak self] response in
+            guard self?.currentEpisodeGuid == guid else { return } // Stale response check
+            self?.isEligibleForPrompt = (response?["eligible_for_prompt"] as? Bool) ?? false
+            self?.currentPreferenceVersion = response?["preference_version"] as? String
+            completion(response?["preference"] as? String)
+        }
+    }
+    
+    func checkPromptAtNaturalBreak(completion: @escaping (Bool, String) -> Void) {
+        guard let guid = currentEpisodeGuid, isEligibleForPrompt, !promptShown else { return }
+        
+        PlayerReactionClient.shared.fetchReactions(episodeGuid: guid) { [weak self] response in
+            guard self?.currentEpisodeGuid == guid else { return }
+            if let eligible = response?["eligible_for_prompt"] as? Bool, eligible {
+                self?.promptShown = true
+                completion(true, guid)
+            } else {
+                self?.isEligibleForPrompt = false
+                completion(false, guid)
+            }
+        }
+    }
+    
+    func submitReaction(guid: String, action: String, preferenceVersion: String?, completion: @escaping (Bool) -> Void) {
+        PlayerReactionClient.shared.postReaction(episodeGuid: guid, action: action, preferenceVersion: preferenceVersion) { [weak self] success, updatedVersion in
+            if success, self?.currentEpisodeGuid == guid {
+                self?.currentPreferenceVersion = updatedVersion
+            }
+            completion(success)
+        }
+    }
+    
+    func handlePromptAction(guid: String, action: String) {
+        PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: action)
     }
 }

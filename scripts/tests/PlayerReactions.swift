@@ -86,6 +86,81 @@ enum LatestEpisodeCache { static func clear() {} }
         reactions.postPrompt(episodeGuid: "abc-123", action: "dismissed")
         check(postedPromptAction?["action"] as? String == promptEventRequests["dismissed"]?["action"] as? String, "postPrompt sends dismissed action from fixture")
 
+        // FeedbackManager Regression Checks
+        let fm = FeedbackManager.shared
+        
+        // 1. Eligibility transitions & Prompt timing
+        var getReqCount = 0
+        reactions.httpClientGet = { url, headers, completion in
+            getReqCount += 1
+            let resp = ["eligible_for_prompt": true, "preference_version": "v1"] as [String: Any]
+            completion(try? JSONSerialization.data(withJSONObject: resp), nil)
+        }
+        
+        fm.loadEpisode(guid: "ep-1") { _ in }
+        check(fm.isEligibleForPrompt, "Manager becomes eligible on load")
+        check(fm.currentEpisodeGuid == "ep-1", "Manager sets episode guid")
+        check(getReqCount == 1, "loadEpisode makes GET request")
+        
+        // 2. Cross-device claim refusal
+        reactions.httpClientGet = { url, headers, completion in
+            // Another device already claimed it
+            let resp = ["eligible_for_prompt": false, "preference_version": "v1"] as [String: Any]
+            completion(try? JSONSerialization.data(withJSONObject: resp), nil)
+        }
+        
+        var promptShown = false
+        fm.checkPromptAtNaturalBreak { success, guid in
+            promptShown = success
+        }
+        check(!promptShown, "Prompt is not shown if claim fails (cross-device refusal)")
+        check(!fm.isEligibleForPrompt, "Manager eligibility transitions to false")
+        
+        // 3. Stale responses
+        fm.loadEpisode(guid: "ep-2") { _ in }
+        reactions.httpClientGet = { url, headers, completion in
+            // Simulate delayed response for ep-2 after episode changed
+            let resp = ["eligible_for_prompt": true, "preference_version": "v1"] as [String: Any]
+            // Change episode before completion
+            fm.currentEpisodeGuid = "ep-3"
+            completion(try? JSONSerialization.data(withJSONObject: resp), nil)
+        }
+        fm.loadEpisode(guid: "ep-2") { _ in }
+        check(fm.currentEpisodeGuid == "ep-3", "Episode changed")
+        check(!fm.isEligibleForPrompt, "Stale response does not update eligibility")
+        
+        // 4. Opt-out
+        var postedOptOut: [String: Any]?
+        reactions.httpClientPost = { url, headers, body, completion in
+            postedOptOut = body
+            completion("{\"status\":\"ok\"}".data(using: .utf8), nil)
+        }
+        fm.handlePromptAction(guid: "ep-3", action: "opt_out")
+        check(postedOptOut?["action"] as? String == "opt_out", "Opt-out sends correct action")
+        
+        // 5. Immediate Undo & Episode changes during a reaction
+        reactions.httpClientPost = { url, headers, body, completion in
+            let resp = ["status": "ok", "preference_version": "v2"]
+            // Simulate episode change during inflight reaction
+            fm.currentEpisodeGuid = "ep-4"
+            completion(try? JSONSerialization.data(withJSONObject: resp), nil)
+        }
+        fm.currentEpisodeGuid = "ep-3"
+        fm.currentPreferenceVersion = "v1"
+        fm.submitReaction(guid: "ep-3", action: "undo", preferenceVersion: "v1") { success in
+            check(success, "Undo succeeds")
+        }
+        check(fm.currentPreferenceVersion == "v1", "Preference version not updated for old episode (episode changed during reaction)")
+        
+        // Test updating version normally
+        reactions.httpClientPost = { url, headers, body, completion in
+            let resp = ["status": "ok", "preference_version": "v2"]
+            completion(try? JSONSerialization.data(withJSONObject: resp), nil)
+        }
+        fm.currentEpisodeGuid = "ep-4"
+        fm.submitReaction(guid: "ep-4", action: "more", preferenceVersion: "v1") { _ in }
+        check(fm.currentPreferenceVersion == "v2", "Immediate Undo: preference version refreshes on success")
+
         print("Passed \(count) reaction checks.")
     }
 }
