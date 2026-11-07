@@ -23,128 +23,84 @@ enum UpNextManager { static var maxNewEpisodes = 3; static let maxNewEpisodesRan
 enum LatestEpisodeCache { static func clear() {} }
 
 @main enum PlayerSyncTests {
-    private static var count = 0
-    private static func check(_ value: @autoclosure () -> Bool, _ label: String) {
-        precondition(value(), label); count += 1
+    static var count = 0
+    static func check(_ value: @autoclosure () -> Bool, _ label: String) {
+        precondition(value(), label)
+        count += 1
     }
-
-    private static func reset() {
+    static func wait(_ semaphore: DispatchSemaphore) {
+        check(semaphore.wait(timeout: .now() + 3) == .success, "Request completed")
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    static func main() {
         let ud = UserDefaults.standard
         for key in ["paz_sync_url", "paz_sync_device_id", "paz_sync_credential", "paz_sync_revision", "paz_sync_session_id", "paz_sync_pending_events"] {
             ud.removeObject(forKey: key)
         }
-    }
-
-    static func main() {
-        reset()
-
         let sync = PlayerSyncClient.shared
-        check(!sync.isConfigured, "Sync is not configured initially")
-
-        sync.apiUrl = "https://sync.example.com"
+        check(!sync.isConfigured, "Initially disconnected")
+        sync.apiUrl = "https://sync.example.com/"
+        check(sync.apiUrl == "https://sync.example.com/api/player/v1", "Origin expands to API")
         sync.deviceId = "dev-123"
         sync.credential = "secret"
-        check(sync.isConfigured, "Sync is configured")
-
-        var postCalled = false
+        let fixture = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: "scripts/tests/fixture.json"))) as! [String: Any]
+        var state = fixture["state_response"] as! [String: Any]
+        func encoded(_ value: [String: Any]) -> Data { return try! JSONSerialization.data(withJSONObject: value) }
+        sync.httpClientGet = { url, headers, completion in completion(encoded(state), nil) }
+        sync.fetchState { value in check(value?["revision"] as? Int == 42, "Fetch valid state") }
+        check(sync.sessionId == "sess-xyz", "Only own session acquired")
+        let signal = DispatchSemaphore(value: 0)
+        var requests: [[String: Any]] = []
         sync.httpClientPost = { url, headers, body, completion in
-            postCalled = true
-            completion("{}".data(using: .utf8), nil)
+            check(url.hasSuffix("/api/player/v1/events"), "Canonical event route")
+            requests.append(body)
+            var response = state
+            response["revision"] = requests.count == 1 ? 45 : 46
+            response["conflict"] = requests.count == 1
+            completion(encoded(response), nil)
+            if requests.count == 2 { signal.signal() }
         }
+        sync.postEvent(type: "queue_add", params: ["episode_guid": "new-999", "origin": "manual"])
+        wait(signal)
+        check(requests.count == 2, "Independent edit retries once")
+        check(requests[0]["event_id"] as? String == requests[1]["event_id"] as? String, "Retry preserves idempotency key")
+        check(requests[1]["base_revision"] as? Int == 45, "Retry rebases revision")
 
-        sync.postEvent(type: "checkpoint", params: ["episode_guid": "test", "position_seconds": 12.0], immediate: true)
+        requests.removeAll()
+        sync.httpClientPost = { _, _, body, completion in
+            requests.append(body)
+            completion(encoded(["revision": 47]), nil)
+            signal.signal()
+        }
+        sync.postEvent(type: "checkpoint", params: ["episode_guid": "abc-123", "position_seconds": 155.0])
+        wait(signal)
+        check(requests[0]["session_id"] as? String == "sess-xyz", "Checkpoint uses owned session")
+        let pending = try! JSONSerialization.jsonObject(with: ud.data(forKey: "paz_sync_pending_events")!) as! [[String: Any]]
+        check(pending.count == 1, "Malformed acknowledgement preserves durable event")
+        sync.httpClientPost = { _, _, body, completion in
+            requests.append(body)
+            var response = state
+            response["revision"] = 47
+            completion(encoded(response), nil)
+            signal.signal()
+        }
+        sync.flushPending()
+        wait(signal)
+        check(requests[0]["event_id"] as? String == requests[1]["event_id"] as? String, "Durable retry keeps identity")
 
-        // Sleep a little to wait for background queue
+        var active = state["active_session"] as! [String: Any]
+        active["device_id"] = "another-device"
+        active["session_id"] = "foreign-session"
+        state["active_session"] = active
+        state["revision"] = 50
+        sync.fetchState { _ in }
+        check(sync.sessionId == nil, "Foreign session never adopted")
+        requests.removeAll()
+        sync.postEvent(type: "checkpoint", params: ["episode_guid": "abc-123", "position_seconds": 999.0])
         Thread.sleep(forTimeInterval: 0.1)
-        check(postCalled, "postEvent triggers flushPending")
-
-        testFixture()
-
+        check(requests.isEmpty, "Foreign playback is protected")
+        sync.disconnect()
+        Thread.sleep(forTimeInterval: 0.1)
         print("Passed \(count) sync checks.")
-    }
-
-    private static func testFixture() {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: "scripts/tests/fixture.json")),
-              let fixture = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let stateResp = fixture["state_response"] as? [String: Any],
-              let eventReqs = fixture["event_requests"] as? [String: [String: Any]] else {
-            fatalError("Cannot load fixture.json")
-        }
-
-        let sync = PlayerSyncClient.shared
-
-        // Mock GET
-        var fetchCount = 0
-        sync.httpClientGet = { url, headers, completion in
-            if url.hasSuffix("/state") {
-                fetchCount += 1
-                let jsonData = try? JSONSerialization.data(withJSONObject: stateResp)
-                completion(jsonData, nil)
-            } else {
-                completion(nil, nil)
-            }
-        }
-
-        var fetchCompleted = false
-        sync.fetchState { state in
-            check(state?["revision"] as? Int == 42, "State revision parsed")
-            check(sync.sessionId == "sess-xyz", "Session ID extracted")
-            fetchCompleted = true
-        }
-        check(fetchCompleted, "Fetch state completed")
-
-        // Mock POST to validate events against fixture
-        var postedEvents: [[String: Any]] = []
-        var postCount = 0
-        sync.httpClientPost = { url, headers, body, completion in
-            postedEvents.append(body)
-            postCount += 1
-            if body["type"] as? String == "queue_add" && postCount == 1 {
-                // Simulate conflict for the first queue_add
-                completion("{\"conflict\": true, \"revision\": 45}".data(using: .utf8), nil)
-            } else {
-                completion("{\"revision\": 43}".data(using: .utf8), nil)
-            }
-        }
-
-        // 1. Test offline queue edit conflict retry
-        postCount = 0
-        postedEvents.removeAll()
-        fetchCount = 0
-        sync.postEvent(type: "queue_add", params: [
-            "episode_guid": "abc-123",
-            "audio_version": "v2",
-            "before_episode_guid": NSNull(),
-            "origin": "manual"
-        ], immediate: true)
-        Thread.sleep(forTimeInterval: 0.1) // let the background queue process the flush and the retry
-
-        check(postedEvents.count >= 2, "Event retried after conflict")
-        check(postedEvents.first?["type"] as? String == "queue_add", "First attempt was queue_add")
-        check(fetchCount == 1, "fetchState was called during conflict resolution")
-
-        // 2. Test start event
-        postedEvents.removeAll()
-        sync.postEvent(type: "start", params: [
-            "episode_guid": "abc-123",
-            "audio_version": "v2",
-            "position_seconds": 0.0,
-            "duration_seconds": 3600.0
-        ], immediate: true)
-        Thread.sleep(forTimeInterval: 0.1)
-        check(postedEvents.last?["type"] as? String == "start", "Posted start event")
-        check(postedEvents.last?["episode_guid"] as? String == eventReqs["start"]?["episode_guid"] as? String, "Start payload matches fixture")
-
-        // 3. Test checkpoint event
-        postedEvents.removeAll()
-        sync.postEvent(type: "checkpoint", params: [
-            "session_id": sync.sessionId ?? "",
-            "episode_guid": "abc-123",
-            "audio_version": "v2",
-            "position_seconds": 155.0,
-            "duration_seconds": 3600.0
-        ], immediate: true)
-        Thread.sleep(forTimeInterval: 0.1)
-        check(postedEvents.last?["session_id"] as? String == eventReqs["checkpoint"]?["session_id"] as? String, "Checkpoint payload matches fixture")
     }
 }

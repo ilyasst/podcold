@@ -38,6 +38,8 @@ class AudioPlayer: NSObject {
     private static let itemKeyPaths = ["status", "playbackLikelyToKeepUp", "playbackBufferEmpty"]
 
     var currentEpisode: Episode?
+    private var playbackGeneration = 0
+    private var announcedPlayback = false
 
     // MARK: - Snapshot
     //
@@ -143,11 +145,38 @@ class AudioPlayer: NSObject {
             name: NSNotification.Name.AVPlayerItemPlaybackStalled, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSyncConflict),
             name: NSNotification.Name("podcold.sync.conflict"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(receivedSyncState(_:)),
+            name: NSNotification.Name("podcold.sync.stateFetched"), object: nil)
     }
 
     @objc private func handleSyncConflict() {
         if state == .playing {
             pause(sync: false)
+        }
+    }
+
+    @objc private func receivedSyncState(_ note: Notification) {
+        guard let response = note.object as? [String: Any] else { return }
+        let active = response["active_session"] as? [String: Any]
+        if isPlaying, let owner = active?["device_id"] as? String, owner != PlayerSyncClient.shared.deviceId {
+            pause(sync: false)
+        }
+        let states = response["episodes"] as? [String: [String: Any]] ?? [:]
+        for (guid, record) in states {
+            if guid != currentEpisode?.guid || !isPlaying {
+                if let played = record["played"] as? Bool {
+                    if played { Episode.markPlayed(guid: guid, sync: false) }
+                    else { Episode.unmarkPlayed(guid: guid, sync: false) }
+                }
+                if let position = record["position_seconds"] as? Double, position.isFinite, position >= 0 {
+                    UserDefaults.standard.set(position, forKey: "pos_" + guid)
+                }
+            }
+        }
+        if let queue = response["queue"] as? [[String: Any]] {
+            PlayerSyncClient.shared.hasPendingQueueEdits { pending in
+                if !pending { PlayQueue.shared.syncWithRemote(queue, episodesState: states) }
+            }
         }
     }
 
@@ -189,53 +218,44 @@ class AudioPlayer: NSObject {
         post(.playerEpisodeChanged)
         post(.playerTimeChanged)
 
-        if PlayerSyncClient.shared.isConfigured {
-            PlayerSyncClient.shared.fetchState { [weak self] syncState in
-                guard let self = self, let s = syncState else { return }
-
-                // Issue 9: Reconcile ordered queue and played status from fetchState
-                let eps = s["episodes"] as? [String: [String: Any]] ?? [:]
-                if let queue = s["queue"] as? [[String: Any]] {
-                    PlayQueue.shared.syncWithRemote(queue, episodesState: eps)
-                }
-
-                for (guid, epState) in eps {
-                    if let played = epState["played"] as? Bool {
-                        if played {
-                            Episode.markPlayed(guid: guid, sync: false)
-                        } else {
-                            Episode.unmarkPlayed(guid: guid, sync: false)
+        playbackGeneration += 1
+        let requestGeneration = playbackGeneration
+        announcedPlayback = false
+        guard PlayerSyncClient.shared.isConfigured else { continuePlay(episode: episode); return }
+        PlayerSyncClient.shared.fetchState { [weak self] response in
+            guard let self = self, self.playbackGeneration == requestGeneration else { return }
+            PlayerSyncClient.shared.resolveEpisode(guid: episode.guid) { [weak self] metadata in
+                DispatchQueue.main.async {
+                    guard let self = self, self.playbackGeneration == requestGeneration,
+                          self.currentEpisode === episode else { return }
+                    if let metadata = metadata, let version = metadata["audio_version"] as? String,
+                       let audioURL = metadata["audio_url"] as? String {
+                        let previousVersion = episode.audioVersion
+                        episode.audioVersion = version
+                        episode.audioUrl = audioURL
+                        let states = response?["episodes"] as? [String: [String: Any]] ?? [:]
+                        if let record = states[episode.guid], record["audio_version"] as? String == version,
+                           let position = record["position_seconds"] as? Double, position.isFinite {
+                            self.pendingSeek = record["played"] as? Bool == true ? 0 : max(0, position)
+                        } else if let previousVersion = previousVersion, previousVersion != version {
+                            self.pendingSeek = 0
                         }
+                        self.currentTime = self.pendingSeek
+                        episode.savePosition(self.pendingSeek)
+                        self.post(.playerTimeChanged)
                     }
-                }
-
-                guard self.currentEpisode?.guid == episode.guid else { return }
-                if let epState = eps[episode.guid], let pos = epState["position_seconds"] as? Double,
-                   let ver = epState["audio_version"] as? String {
-
-                    let localVersion = episode.audioVersion ?? ""
-                    if localVersion.isEmpty || localVersion == ver {
-                        let isReady = self.player?.currentItem?.status == .readyToPlay
-                        if abs(pos - self.pendingSeek) > 5 {
-                            episode.savePosition(pos)
-                            if isReady {
-                                self.seek(to: pos)
-                            } else {
-                                self.pendingSeek = pos
-                                self.currentTime = pos
-                                self.post(.playerTimeChanged)
-                            }
-                        }
-                    }
+                    self.continuePlay(episode: episode)
                 }
             }
         }
-        continuePlay(episode: episode)
     }
 
     private func continuePlay(episode: Episode) {
         // If already downloaded, play local file directly — no cert issues
-        if let localPath = episode.localPath() {
+        let savedCopy = Episode.loadDownloads().first { $0.guid == episode.guid }
+        let sameRendition = episode.audioVersion == nil || savedCopy?.audioVersion == episode.audioVersion ||
+            (savedCopy?.audioVersion == nil && URL(string: savedCopy?.audioUrl ?? "")?.path == URL(string: episode.audioUrl)?.path)
+        if sameRendition, let localPath = episode.localPath() {
             startPlayer(url: URL(fileURLWithPath: localPath), episode: episode, isStream: false)
             return
         }
@@ -346,8 +366,8 @@ class AudioPlayer: NSObject {
         player?.rate = playbackRate
         state = .playing
 
-        if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
-            let ver = ep.audioVersion ?? ""
+        if !announcedPlayback, PlayerSyncClient.shared.isConfigured, let ep = currentEpisode, let ver = ep.audioVersion {
+            announcedPlayback = true
             PlayerSyncClient.shared.postEvent(type: "start", params: [
                 "episode_guid": ep.guid,
                 "audio_version": ver,
@@ -449,6 +469,11 @@ class AudioPlayer: NSObject {
 
     func pause(sync: Bool = true) {
         player?.pause()
+        if let player = player {
+            let position = CMTimeGetSeconds(player.currentTime())
+            if position.isFinite { currentTime = max(0, position) }
+        }
+        currentEpisode?.savePosition(currentTime)
         state = .paused
         if sync && PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
             PlayerSyncClient.shared.postEvent(type: "pause", params: [
@@ -466,6 +491,10 @@ class AudioPlayer: NSObject {
         // An AVPlayer parked at the end of its item ignores play(), so the only
         // meaningful "play" there is to start over.
         if state == .ended { replay(); return }
+        if PlayerSyncClient.shared.isConfigured, let episode = currentEpisode {
+            play(episode: episode)
+            return
+        }
         guard let p = player else {
             // Torn down while the episode stayed current (e.g. a failed load)
             if let ep = currentEpisode { play(episode: ep) }
@@ -542,6 +571,7 @@ class AudioPlayer: NSObject {
     }
 
     func stop() {
+        playbackGeneration += 1
         cancelSleepTimer()
         reset()
         post(.playerEpisodeChanged)

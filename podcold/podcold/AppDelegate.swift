@@ -93,7 +93,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         if PlayerSyncClient.shared.isConfigured {
-            PlayerSyncClient.shared.fetchState { _ in }
+            PlayerSyncClient.shared.beginSyncing()
         }
         AutoEpisodeManager.shared.becameActive()
         AudioPlayer.shared.checkSleepTimer()

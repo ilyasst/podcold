@@ -30,7 +30,7 @@ enum LatestEpisodeCache { static func clear() {} }
 
     private static func reset() {
         let ud = UserDefaults.standard
-        for key in ["paz_sync_url", "paz_sync_device_id", "paz_sync_credential"] {
+        for key in ["paz_sync_url", "paz_sync_device_id", "paz_sync_credential", "podcold_prompt_opt_out"] {
             ud.removeObject(forKey: key)
         }
     }
@@ -116,6 +116,23 @@ enum LatestEpisodeCache { static func clear() {} }
         check(!promptShown, "Prompt is not shown if claim fails (cross-device refusal)")
         check(!fm.isEligibleForPrompt, "Manager eligibility transitions to false")
 
+        // Eligibility can race another device, so the actual claim must succeed.
+        reactions.httpClientGet = { _, _, completion in
+            completion(try? JSONSerialization.data(withJSONObject: ["eligible_for_prompt": true]), nil)
+        }
+        reactions.httpClientPost = { _, _, _, completion in
+            completion(try? JSONSerialization.data(withJSONObject: ["status": "ok", "claimed": false]), nil)
+        }
+        fm.checkPromptAtNaturalBreak { shown, _ in
+            check(!shown, "Server claim refusal suppresses the popup")
+        }
+        reactions.httpClientPost = { _, _, _, completion in
+            completion(try? JSONSerialization.data(withJSONObject: ["status": "ok", "claimed": true]), nil)
+        }
+        fm.checkPromptAtNaturalBreak { shown, _ in
+            check(shown, "Successful server claim permits the popup")
+        }
+
         // 3. Stale responses
         fm.loadEpisode(guid: "ep-2") { _ in }
         reactions.httpClientGet = { url, headers, completion in
@@ -133,15 +150,11 @@ enum LatestEpisodeCache { static func clear() {} }
         var postedOptOut: [String: Any]?
         reactions.httpClientPost = { url, headers, body, completion in
             postedOptOut = body
-            if body["action"] as? String == "opt_out" {
-                // Reject invalid actions like real server
-                completion(nil, NSError(domain: "test", code: 400, userInfo: nil))
-                return
-            }
+
             completion("{\"status\":\"ok\"}".data(using: .utf8), nil)
         }
         fm.handlePromptAction(guid: "ep-3", action: "opt_out")
-        check(postedOptOut?["action"] as? String == "dismissed", "Opt-out sends dismissed action")
+        check(postedOptOut?["action"] as? String == "opt_out", "Opt-out is shared with the server")
 
         // 5. Immediate Undo & Episode changes during a reaction
         reactions.httpClientGet = { url, headers, completion in

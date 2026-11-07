@@ -2,7 +2,7 @@ import Foundation
 
 class HTTPClient {
 
-    static func get(url: String, headers: [String: String] = [:], completion: @escaping (Data?, Error?) -> Void) {
+    static func get(url: String, headers: [String: String] = [:], validateServerTrust: Bool = false, completion: @escaping (Data?, Error?) -> Void) {
         guard let nsUrl = URL(string: url) else {
             completion(nil, makeError("Invalid URL: \(url)")); return
         }
@@ -10,10 +10,10 @@ class HTTPClient {
         req.httpMethod = "GET"
         req.timeoutInterval = 30
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
-        send(req, completion: completion)
+        send(req, validateServerTrust: validateServerTrust, completion: completion)
     }
 
-    static func post(url: String, headers: [String: String] = [:], body: [String: Any], completion: @escaping (Data?, Error?) -> Void) {
+    static func post(url: String, headers: [String: String] = [:], body: [String: Any], validateServerTrust: Bool = false, completion: @escaping (Data?, Error?) -> Void) {
         guard let nsUrl = URL(string: url) else {
             completion(nil, makeError("Invalid URL: \(url)")); return
         }
@@ -23,16 +23,16 @@ class HTTPClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         if let data = try? JSONSerialization.data(withJSONObject: body) { req.httpBody = data }
-        send(req, completion: completion)
+        send(req, validateServerTrust: validateServerTrust, completion: completion)
     }
 
     // Always use NSURLFetcher — works iOS 6 through iOS 15+
     // (NSURLConnection is deprecated from iOS 9 but never removed)
-    private static func send(_ req: URLRequest, completion: @escaping (Data?, Error?) -> Void) {
+    private static func send(_ req: URLRequest, validateServerTrust: Bool, completion: @escaping (Data?, Error?) -> Void) {
         if Thread.isMainThread {
-            NSURLFetcher.fetch(req, completion: completion)
+            NSURLFetcher.fetch(req, validateServerTrust: validateServerTrust, completion: completion)
         } else {
-            DispatchQueue.main.async { NSURLFetcher.fetch(req, completion: completion) }
+            DispatchQueue.main.async { NSURLFetcher.fetch(req, validateServerTrust: validateServerTrust, completion: completion) }
         }
     }
 
@@ -49,13 +49,13 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
     private var conn: NSURLConnection?
     private var timer: Timer?
     private var finished = false
+    private var validateServerTrust = false
+    private var responseCode = 0
     private static var active: [NSURLFetcher] = []
 
-    private var httpResponse: HTTPURLResponse?
-
-    static func fetch(_ request: URLRequest, completion: @escaping (Data?, Error?) -> Void) {
-
+    static func fetch(_ request: URLRequest, validateServerTrust: Bool, completion: @escaping (Data?, Error?) -> Void) {
         let f = NSURLFetcher(completion: completion)
+        f.validateServerTrust = validateServerTrust
         active.append(f)
 
         // Schedule in .common so it fires in both default and UITracking run loop modes
@@ -77,14 +77,15 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
 
     func connection(_ c: NSURLConnection, didReceive response: URLResponse) {
         accumulated = Data()
-        httpResponse = response as? HTTPURLResponse
+        responseCode = (response as? HTTPURLResponse)?.statusCode ?? 0
     }
     func connection(_ c: NSURLConnection, didReceive d: Data) { accumulated.append(d) }
     func connectionDidFinishLoading(_ c: NSURLConnection) {
-        if let res = httpResponse, !(200...299).contains(res.statusCode) {
-            finish(nil, HTTPClient.makeError("HTTP \(res.statusCode)"))
-        } else {
+        if (200...299).contains(responseCode) {
             finish(accumulated, nil)
+        } else {
+            finish(nil, NSError(domain: "HTTPClient", code: responseCode,
+                                userInfo: [NSLocalizedDescriptionKey: "HTTP \(responseCode)"]))
         }
     }
     func connection(_ c: NSURLConnection, didFailWithError e: Error) { finish(nil, e) }
@@ -93,7 +94,40 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
     // delegate methods for the redirect-target's TLS connection.
     func connection(_ c: NSURLConnection, willSend request: URLRequest,
                     redirectResponse: URLResponse?) -> URLRequest? {
+        if validateServerTrust, let previous = redirectResponse?.url, let next = request.url,
+           previous.scheme != next.scheme || previous.host != next.host || previous.port != next.port {
+            finish(nil, HTTPClient.makeError("The server redirected to a different origin."))
+            return nil
+        }
         return request
+    }
+
+    // SSL bypass — both old-style and new-style.
+    // On iOS 6, redirect-leg TLS connections may invoke old-style methods instead of
+    // willSendRequestFor:. Implementing all three ensures bypass works in every case.
+
+    func connection(_ c: NSURLConnection, willSendRequestFor challenge: URLAuthenticationChallenge) {
+        sslBypass(challenge)
+    }
+
+    func connection(_ c: NSURLConnection, canAuthenticateAgainstProtectionSpace
+                    space: URLProtectionSpace) -> Bool {
+        return !validateServerTrust && space.authenticationMethod == NSURLAuthenticationMethodServerTrust
+    }
+
+    func connection(_ c: NSURLConnection,
+                    didReceive challenge: URLAuthenticationChallenge) {
+        sslBypass(challenge)
+    }
+
+    private func sslBypass(_ challenge: URLAuthenticationChallenge) {
+        guard let sender = challenge.sender else { return }
+        if !validateServerTrust, challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            sender.use(URLCredential(trust: trust), for: challenge)
+        } else {
+            sender.performDefaultHandling?(for: challenge)
+        }
     }
 
     // Single-entry. On timeout the connection was previously only dropped from

@@ -269,14 +269,16 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         checkPromptEligibility(isForegroundReturn: true)
     }
 
+    private var promptedGuid: String?
     private func checkPromptEligibility(isForegroundReturn: Bool = false) {
+        guard !AudioPlayer.shared.isPlaying, view.window != nil else { return }
         FeedbackManager.shared.checkPromptAtNaturalBreak { [weak self] success, guid in
             DispatchQueue.main.async {
                 if success, let self = self, FeedbackManager.shared.currentEpisodeGuid == guid {
                     let alert = UIAlertView(title: "Enjoying this show?", message: "Would you like to give feedback?", delegate: self, cancelButtonTitle: "Not Now", otherButtonTitles: "Feedback", "Never Ask Again")
+                    self.promptedGuid = guid
                     alert.tag = 4
                     alert.show()
-                    FeedbackManager.shared.handlePromptAction(guid: guid, action: "shown")
                 }
             }
         }
@@ -458,7 +460,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     private func confirmPass(guid: String, preferenceVersion: String?) {
         pendingPassGuid = guid
         pendingPassPreferenceVersion = preferenceVersion
-        let alert = UIAlertView(title: "Pass on this show?", message: "You'll skip the rest of this episode and hear less of this show in your mix.", delegate: self, cancelButtonTitle: "Cancel", otherButtonTitles: "Pass")
+        let alert = UIAlertView(title: "Pass on this show?", message: "This removes the show from your Paz mix. You can undo this choice.", delegate: self, cancelButtonTitle: "Cancel", otherButtonTitles: "Pass")
         alert.tag = 3
         alert.show()
     }
@@ -482,9 +484,10 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
                 }
             }
         } else if alertView.tag == 4 {
-            guard let guid = FeedbackManager.shared.currentEpisodeGuid else { return }
+            guard let guid = promptedGuid else { return }
             let title = alertView.buttonTitle(at: buttonIndex)
             if title == "Feedback" {
+                guard FeedbackManager.shared.currentEpisodeGuid == guid else { return }
                 feedbackTapped()
             } else if title == "Not Now" {
                 FeedbackManager.shared.handlePromptAction(guid: guid, action: "dismissed")

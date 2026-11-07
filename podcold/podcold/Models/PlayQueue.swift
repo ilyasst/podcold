@@ -51,72 +51,62 @@ class PlayQueue {
     // UserDefaults key directly (BackupManager import) must tell it to re-read.
     func reload() { episodes = PlayQueue.load(); notifyChange() }
 
+    private var syncGeneration = 0
+
     func syncWithRemote(_ remoteQueue: [[String: Any]], episodesState: [String: [String: Any]]) {
-        var missingGuids: [String] = []
-        for item in remoteQueue {
-            guard let guid = item["episode_guid"] as? String else { continue }
-            if !self.episodes.contains(where: { $0.guid == guid }) {
-                missingGuids.append(guid)
-            }
-        }
-
-        if missingGuids.isEmpty {
-            self.applyRemoteQueue(remoteQueue)
-        } else {
-            let group = DispatchGroup()
-            var fetchedMetadata: [String: [String: Any]] = [:]
-
-            for guid in missingGuids {
-                group.enter()
-                PlayerSyncClient.shared.resolveEpisode(guid: guid) { metadata in
-                    if let md = metadata {
-                        DispatchQueue.main.async {
-                            fetchedMetadata[guid] = md
-                        }
-                    }
+        syncGeneration += 1
+        let generation = syncGeneration
+        let group = DispatchGroup()
+        var metadata: [String: [String: Any]] = [:]
+        let remoteIDs = Set(remoteQueue.compactMap { $0["episode_guid"] as? String })
+        for guid in remoteIDs {
+            group.enter()
+            PlayerSyncClient.shared.resolveEpisode(guid: guid) { value in
+                DispatchQueue.main.async {
+                    metadata[guid] = value
                     group.leave()
                 }
             }
-
-            group.notify(queue: .main) {
-                self.applyRemoteQueue(remoteQueue, fetchedMetadata: fetchedMetadata)
-            }
         }
-    }
-
-    private func applyRemoteQueue(_ remoteQueue: [[String: Any]], fetchedMetadata: [String: [String: Any]] = [:]) {
-        var newEpisodes: [Episode] = []
-        for item in remoteQueue {
-            guard let guid = item["episode_guid"] as? String else { continue }
-
-            if let existing = episodes.first(where: { $0.guid == guid }) {
-                newEpisodes.append(existing)
-            } else if let md = fetchedMetadata[guid] {
-                let ep = Episode()
-                ep.podcastTitle = md["show_title"] as? String ?? "Unknown Show"
-                ep.title = md["title"] as? String ?? "Unknown Title"
-                ep.audioUrl = md["audio_url"] as? String ?? ""
-                ep.guid = guid
-                ep.audioVersion = item["audio_version"] as? String
-                if let origin = item["origin"] as? String, origin == "automatic" {
-                    ep.rollingFeed = "remote-automatic"
+        group.notify(queue: .main) {
+            guard generation == self.syncGeneration else { return }
+            let known = Set(UserDefaults.standard.stringArray(forKey: "paz_sync_queue_guids") ?? [])
+            var entries: [Episode] = []
+            for item in remoteQueue {
+                guard let guid = item["episode_guid"] as? String else { continue }
+                let local = self.episodes.first { $0.guid == guid }
+                let episode: Episode
+                if let value = metadata[guid] {
+                    episode = local ?? Episode()
+                    episode.guid = guid
+                    episode.title = value["title"] as? String ?? episode.title
+                    episode.podcastTitle = value["show_title"] as? String ?? episode.podcastTitle
+                    episode.audioUrl = value["audio_url"] as? String ?? episode.audioUrl
+                    // Keep the stored file's identity until playback checks its rendition.
+                    if episode.audioVersion == nil { episode.audioVersion = item["audio_version"] as? String }
+                } else if let local = local {
+                    episode = local
+                } else {
+                    // Preserve a queued identity through a temporary resolver failure.
+                    episode = Episode()
+                    episode.guid = guid
+                    episode.title = "Episode unavailable"
+                    episode.audioVersion = item["audio_version"] as? String
                 }
-                newEpisodes.append(ep)
-            } else {
-                let ep = Episode()
-                ep.podcastTitle = "Unknown"
-                ep.title = "Unknown"
-                ep.guid = guid
-                ep.audioVersion = item["audio_version"] as? String
-                newEpisodes.append(ep)
+                if item["origin"] as? String == "manual" { episode.rollingFeed = nil }
+                else if episode.rollingFeed == nil { episode.rollingFeed = "remote-automatic" }
+                entries.append(episode)
             }
+            // Entries that have never been shared belong to this device.
+            entries.append(contentsOf: self.episodes.filter { !known.contains($0.guid) && !remoteIDs.contains($0.guid) })
+            self.episodes = entries
+            UserDefaults.standard.set(Array(remoteIDs), forKey: "paz_sync_queue_guids")
+            self.save()
         }
-
-        self.episodes = newEpisodes
-        self.save()
     }
 
     private func save() {
+        syncGeneration += 1
         UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.storageKey)
         notifyChange()
     }
@@ -316,8 +306,7 @@ class PlayQueue {
         refillLater()
 
         if PlayerSyncClient.shared.isConfigured {
-            PlayerSyncClient.shared.postEvent(type: "queue_advance", params: [
-                "session_id": PlayerSyncClient.shared.sessionId ?? "",
+            PlayerSyncClient.shared.postEvent(type: "queue_remove", params: [
                 "episode_guid": ep.guid
             ])
         }

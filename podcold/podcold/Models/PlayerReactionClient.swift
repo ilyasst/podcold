@@ -10,7 +10,7 @@ class PlayerReactionClient {
     // Injectable for tests
     var httpClientGet: (String, [String: String], @escaping (Data?, Error?) -> Void) -> Void = { url, headers, completion in
         #if canImport(UIKit)
-        HTTPClient.get(url: url, headers: headers, completion: completion)
+        HTTPClient.get(url: url, headers: headers, validateServerTrust: true, completion: completion)
         #else
         fatalError("Inject HTTPClient.get")
         #endif
@@ -18,7 +18,7 @@ class PlayerReactionClient {
 
     var httpClientPost: (String, [String: String], [String: Any], @escaping (Data?, Error?) -> Void) -> Void = { url, headers, body, completion in
         #if canImport(UIKit)
-        HTTPClient.post(url: url, headers: headers, body: body, completion: completion)
+        HTTPClient.post(url: url, headers: headers, body: body, validateServerTrust: true, completion: completion)
         #else
         fatalError("Inject HTTPClient.post")
         #endif
@@ -31,7 +31,7 @@ class PlayerReactionClient {
         let url = "\(PlayerSyncClient.shared.apiUrl)/reactions/\(episodeGuid)"
 
         httpClientGet(url, headers) { data, error in
-            guard let data = data, let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard error == nil, let data = data, let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 completion(nil)
                 return
             }
@@ -68,8 +68,8 @@ class PlayerReactionClient {
         }
     }
 
-    func postPrompt(episodeGuid: String, action: String) {
-        guard isConfigured, let cred = PlayerSyncClient.shared.credential else { return }
+    func postPrompt(episodeGuid: String, action: String, completion: ((Bool) -> Void)? = nil) {
+        guard isConfigured, let cred = PlayerSyncClient.shared.credential else { completion?(false); return }
 
         let payload: [String: Any] = [
             "event_id": UUID().uuidString,
@@ -80,7 +80,12 @@ class PlayerReactionClient {
         let headers = ["Authorization": "Bearer \(cred)"]
         let url = "\(PlayerSyncClient.shared.apiUrl)/prompts"
 
-        httpClientPost(url, headers, payload) { _, _ in }
+        httpClientPost(url, headers, payload) { data, error in
+            guard error == nil, let data = data,
+                  let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  value["status"] as? String == "ok" else { completion?(false); return }
+            completion?(action != "shown" || value["claimed"] as? Bool == true)
+        }
     }
 }
 
@@ -91,6 +96,7 @@ class FeedbackManager {
     var currentPreferenceVersion: String?
     var isEligibleForPrompt: Bool = false
     var promptShown: Bool = false
+    private var claimInFlight = false
 
     func isConfigured() -> Bool {
         return PlayerReactionClient.shared.isConfigured
@@ -109,16 +115,28 @@ class FeedbackManager {
     }
 
     func checkPromptAtNaturalBreak(completion: @escaping (Bool, String) -> Void) {
-        guard let guid = currentEpisodeGuid, !promptShown, !UserDefaults.standard.bool(forKey: "podcold_prompt_opt_out") else { return }
-
+        guard let guid = currentEpisodeGuid, !promptShown, !claimInFlight,
+              !UserDefaults.standard.bool(forKey: "podcold_prompt_opt_out") else { return }
+        claimInFlight = true
         PlayerReactionClient.shared.fetchReactions(episodeGuid: guid) { [weak self] response in
-            guard self?.currentEpisodeGuid == guid else { return }
-            if let eligible = response?["eligible_for_prompt"] as? Bool, eligible {
-                self?.promptShown = true
-                completion(true, guid)
-            } else {
-                self?.isEligibleForPrompt = false
+            guard let self = self, self.currentEpisodeGuid == guid else {
+                self?.claimInFlight = false
+                return
+            }
+            self.currentPreferenceVersion = response?["preference_version"] as? String
+            guard response?["eligible_for_prompt"] as? Bool == true else {
+                self.claimInFlight = false
+                self.isEligibleForPrompt = false
                 completion(false, guid)
+                return
+            }
+            PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: "shown") { [weak self] claimed in
+                guard let self = self else { return }
+                self.claimInFlight = false
+                guard self.currentEpisodeGuid == guid else { return }
+                self.promptShown = claimed
+                self.isEligibleForPrompt = false
+                completion(claimed, guid)
             }
         }
     }
@@ -135,7 +153,7 @@ class FeedbackManager {
     func handlePromptAction(guid: String, action: String) {
         if action == "opt_out" {
             UserDefaults.standard.set(true, forKey: "podcold_prompt_opt_out")
-            PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: "dismissed")
+            PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: "opt_out")
         } else {
             PlayerReactionClient.shared.postPrompt(episodeGuid: guid, action: action)
         }

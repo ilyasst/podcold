@@ -142,7 +142,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         if indexPath.section == 4 {
             if PlayerSyncClient.shared.isConfigured {
                 cell.textLabel?.text = "Sync configured"
-                cell.detailTextLabel?.text = "Revoke device"
+                cell.detailTextLabel?.text = "Disconnect"
                 cell.textLabel?.textColor = UIColor(red: 0.2, green: 0.8, blue: 0.2, alpha: 1)
             } else {
                 cell.textLabel?.text = "Enroll device"
@@ -179,8 +179,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     private func handleEnrollment() {
         if PlayerSyncClient.shared.isConfigured {
-            PlayerSyncClient.shared.deviceId = nil
-            PlayerSyncClient.shared.credential = nil
+            PlayerSyncClient.shared.disconnect()
             tableView.reloadData()
             return
         }
