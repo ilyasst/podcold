@@ -135,5 +135,43 @@
     "title": "Episode 5",
     "show_title": "My Podcast",
     "audio_url": "https://example.com/audio/abc-123"
+  },
+  "reactions_response": {
+    "preference": "more",
+    "preference_version": 10,
+    "prompt_eligible": true,
+    "cooldown_active": false
+  },
+  "reaction_event_requests": {
+    "more": {
+      "event_id": "evt-react-more",
+      "episode_guid": "abc-123",
+      "action": "more",
+      "preference_version": 10
+    },
+    "pass": {
+      "event_id": "evt-react-pass",
+      "episode_guid": "abc-123",
+      "action": "pass",
+      "preference_version": 10
+    },
+    "undo": {
+      "event_id": "evt-react-undo",
+      "episode_guid": "abc-123",
+      "action": "undo",
+      "preference_version": 10
+    }
+  },
+  "prompt_event_requests": {
+    "shown": {
+      "event_id": "evt-prompt-shown",
+      "episode_guid": "abc-123",
+      "action": "shown"
+    },
+    "dismissed": {
+      "event_id": "evt-prompt-dismissed",
+      "episode_guid": "abc-123",
+      "action": "dismissed"
+    }
   }
 }
