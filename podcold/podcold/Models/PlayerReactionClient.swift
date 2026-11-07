@@ -39,7 +39,7 @@ class PlayerReactionClient {
         }
     }
 
-    func postReaction(episodeGuid: String, action: String, preferenceVersion: Int?, completion: ((Bool) -> Void)? = nil) {
+    func postReaction(episodeGuid: String, action: String, preferenceVersion: String?, completion: ((Bool) -> Void)? = nil) {
         guard isConfigured, let cred = PlayerSyncClient.shared.credential else { completion?(false); return }
 
         var payload: [String: Any] = [
@@ -55,7 +55,13 @@ class PlayerReactionClient {
         let url = "\(PlayerSyncClient.shared.apiUrl)/reactions"
 
         httpClientPost(url, headers, payload) { data, error in
-            completion?(error == nil)
+            guard error == nil, let data = data,
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let status = dict["status"] as? String, status == "ok" else {
+                completion?(false)
+                return
+            }
+            completion?(true)
         }
     }
 

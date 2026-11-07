@@ -47,9 +47,9 @@ enum LatestEpisodeCache { static func clear() {} }
 
         guard let fixtureData = try? Data(contentsOf: URL(fileURLWithPath: "scripts/tests/fixture.json")),
               let fixture = try? JSONSerialization.jsonObject(with: fixtureData) as? [String: Any],
-              let reactionsResp = fixture["reactions_response"] as? [String: Any],
-              let reactionEventRequests = fixture["reaction_event_requests"] as? [String: [String: Any]],
-              let promptEventRequests = fixture["prompt_event_requests"] as? [String: [String: Any]] else {
+              let reactionsResp = fixture["reactions_get_response"] as? [String: Any],
+              let reactionEventRequests = fixture["reactions_post_request"] as? [String: [String: Any]],
+              let promptEventRequests = fixture["prompts_post_request"] as? [String: [String: Any]] else {
             fatalError("Cannot load fixture.json")
         }
 
@@ -70,17 +70,17 @@ enum LatestEpisodeCache { static func clear() {} }
         var postedAction: [String: Any]?
         reactions.httpClientPost = { url, headers, body, completion in
             postedAction = body
-            completion("{}".data(using: .utf8), nil)
+            completion("{\"status\":\"ok\"}".data(using: .utf8), nil)
         }
 
-        reactions.postReaction(episodeGuid: "abc-123", action: "pass", preferenceVersion: 10)
+        reactions.postReaction(episodeGuid: "abc-123", action: "pass", preferenceVersion: "10")
         check(postedAction?["action"] as? String == reactionEventRequests["pass"]?["action"] as? String, "postReaction sends pass action from fixture")
-        check(postedAction?["preference_version"] as? Int == reactionEventRequests["pass"]?["preference_version"] as? Int, "postReaction sends preference_version from fixture")
+        check(postedAction?["preference_version"] as? String == reactionEventRequests["pass"]?["preference_version"] as? String, "postReaction sends preference_version from fixture")
 
         var postedPromptAction: [String: Any]?
         reactions.httpClientPost = { url, headers, body, completion in
             postedPromptAction = body
-            completion("{}".data(using: .utf8), nil)
+            completion("{\"status\":\"ok\"}".data(using: .utf8), nil)
         }
 
         reactions.postPrompt(episodeGuid: "abc-123", action: "dismissed")
