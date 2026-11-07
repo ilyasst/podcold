@@ -51,7 +51,10 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
     private var finished = false
     private static var active: [NSURLFetcher] = []
 
+    private var httpResponse: HTTPURLResponse?
+
     static func fetch(_ request: URLRequest, completion: @escaping (Data?, Error?) -> Void) {
+
         let f = NSURLFetcher(completion: completion)
         active.append(f)
 
@@ -72,9 +75,18 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
 
     @objc private func timedOut() { finish(nil, HTTPClient.makeError("Timeout")) }
 
-    func connection(_ c: NSURLConnection, didReceive response: URLResponse) { accumulated = Data() }
+    func connection(_ c: NSURLConnection, didReceive response: URLResponse) {
+        accumulated = Data()
+        httpResponse = response as? HTTPURLResponse
+    }
     func connection(_ c: NSURLConnection, didReceive d: Data) { accumulated.append(d) }
-    func connectionDidFinishLoading(_ c: NSURLConnection) { finish(accumulated, nil) }
+    func connectionDidFinishLoading(_ c: NSURLConnection) {
+        if let res = httpResponse, !(200...299).contains(res.statusCode) {
+            finish(nil, HTTPClient.makeError("HTTP \(res.statusCode)"))
+        } else {
+            finish(accumulated, nil)
+        }
+    }
     func connection(_ c: NSURLConnection, didFailWithError e: Error) { finish(nil, e) }
 
     // Explicit redirect — returning the request ensures iOS 6 calls our auth challenge
@@ -82,34 +94,6 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
     func connection(_ c: NSURLConnection, willSend request: URLRequest,
                     redirectResponse: URLResponse?) -> URLRequest? {
         return request
-    }
-
-    // SSL bypass — both old-style and new-style.
-    // On iOS 6, redirect-leg TLS connections may invoke old-style methods instead of
-    // willSendRequestFor:. Implementing all three ensures bypass works in every case.
-
-    func connection(_ c: NSURLConnection, willSendRequestFor challenge: URLAuthenticationChallenge) {
-        sslBypass(challenge)
-    }
-
-    func connection(_ c: NSURLConnection, canAuthenticateAgainstProtectionSpace
-                    space: URLProtectionSpace) -> Bool {
-        return space.authenticationMethod == NSURLAuthenticationMethodServerTrust
-    }
-
-    func connection(_ c: NSURLConnection,
-                    didReceive challenge: URLAuthenticationChallenge) {
-        sslBypass(challenge)
-    }
-
-    private func sslBypass(_ challenge: URLAuthenticationChallenge) {
-        guard let sender = challenge.sender else { return }
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            sender.use(URLCredential(trust: trust), for: challenge)
-        } else {
-            sender.performDefaultHandling?(for: challenge)
-        }
     }
 
     // Single-entry. On timeout the connection was previously only dropped from

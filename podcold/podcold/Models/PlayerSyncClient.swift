@@ -14,7 +14,14 @@ class PlayerSyncClient {
 
     var apiUrl: String {
         get { return UserDefaults.standard.string(forKey: urlKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: urlKey) }
+        set {
+            var url = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            while url.hasSuffix("/") { url.removeLast() }
+            if !url.isEmpty && !url.hasSuffix("/api/player/v1") {
+                url += "/api/player/v1"
+            }
+            UserDefaults.standard.set(url, forKey: urlKey)
+        }
     }
 
     var deviceId: String? {
@@ -44,6 +51,7 @@ class PlayerSyncClient {
     private let bgQueue = DispatchQueue(label: "com.podcold.sync")
     private var pendingEvents: [[String: Any]] = []
     private let pendingEventsKey = "paz_sync_pending_events"
+    private var isFlushing = false
 
     // Injectable for tests
     var httpClientPost: (String, [String: String], [String: Any], @escaping (Data?, Error?) -> Void) -> Void = { url, headers, body, completion in
@@ -117,11 +125,14 @@ class PlayerSyncClient {
         guard isConfigured, let cred = credential else { return }
 
         bgQueue.async {
+            guard !self.isFlushing else { return }
             let events = self.pendingEvents
             guard !events.isEmpty else { return }
+            self.isFlushing = true
 
             // Base revision should be populated at flush time for queue operations, but not playback events
             var event = events.first!
+            let eventId = event["event_id"] as? String ?? ""
             let type = event["type"] as? String ?? ""
             let queueOps = ["queue_add", "queue_remove", "queue_move", "queue_advance"]
             if queueOps.contains(type) {
@@ -132,31 +143,45 @@ class PlayerSyncClient {
 
             let headers = ["Authorization": "Bearer \(cred)"]
             self.httpClientPost(self.apiUrl + "/events", headers, event) { data, error in
-                guard error == nil, let data = data,
-                      let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    return
-                }
-
                 self.bgQueue.async {
-                    if let conflict = response["conflict"] as? Bool, conflict {
-                        // Someone else took over, pause local playback
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(name: NSNotification.Name("podcold.sync.conflict"), object: nil)
-                        }
-                        self.pendingEvents.removeAll() // Clear pending to prevent more conflicts
-                        self.savePending()
+                    self.isFlushing = false
+
+                    guard error == nil, let data = data,
+                          let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                         return
                     }
 
-                    guard !self.pendingEvents.isEmpty else { return }
-                    self.pendingEvents.removeFirst()
-                    self.savePending()
+                    if let conflict = response["conflict"] as? Bool, conflict {
+                        if !queueOps.contains(type) {
+                            DispatchQueue.main.async {
+                                NotificationCenter.default.post(name: NSNotification.Name("podcold.sync.conflict"), object: nil)
+                            }
+                            // Discard the playback event because it's invalid (we lost the session)
+                            if let first = self.pendingEvents.first, (first["event_id"] as? String) == eventId {
+                                self.pendingEvents.removeFirst()
+                                self.savePending()
+                            }
+                        }
+
+                        // For queue ops, we DO NOT discard the event. We keep it to retry with the new base_revision.
+                        // Wait for a fresh state fetch before trying the rest
+                        self.fetchState { _ in
+                            self.flushPending()
+                        }
+                        return
+                    }
+
+                    if let first = self.pendingEvents.first, (first["event_id"] as? String) == eventId {
+                        self.pendingEvents.removeFirst()
+                        self.savePending()
+                    }
 
                     if let rev = response["revision"] as? Int {
                         self.revision = max(self.revision, rev)
                     }
                     if let activeSession = response["active_session"] as? [String: Any],
-                       let sId = activeSession["session_id"] as? String {
+                       let sId = activeSession["session_id"] as? String,
+                       let devId = activeSession["device_id"] as? String, devId == self.deviceId {
                         self.sessionId = sId
                     } else if response.keys.contains("active_session") && response["active_session"] is NSNull {
                         self.sessionId = nil
@@ -183,12 +208,29 @@ class PlayerSyncClient {
                 self.revision = max(self.revision, rev)
             }
             if let activeSession = response["active_session"] as? [String: Any],
-               let sId = activeSession["session_id"] as? String {
+               let sId = activeSession["session_id"] as? String,
+               let devId = activeSession["device_id"] as? String, devId == self.deviceId {
                 self.sessionId = sId
             } else if response.keys.contains("active_session") && response["active_session"] is NSNull {
                 self.sessionId = nil
             }
+
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: NSNotification.Name("podcold.sync.stateFetched"), object: response)
+            }
             completion(response)
+        }
+    }
+
+    func resolveEpisode(guid: String, completion: @escaping ([String: Any]?) -> Void) {
+        guard isConfigured, let cred = credential else { completion(nil); return }
+        let headers = ["Authorization": "Bearer \(cred)"]
+        self.httpClientGet(apiUrl + "/episodes/\(guid)", headers) { data, error in
+            if let data = data, let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                completion(response)
+            } else {
+                completion(nil)
+            }
         }
     }
 

@@ -9,6 +9,7 @@ class PlayerSyncClient {
     var isConfigured = false
     var sessionId: String? = "test-session"
     func postEvent(type: String, params: [String: Any]) {}
+    func resolveEpisode(guid: String, completion: @escaping ([String: Any]?) -> Void) { completion(nil) }
 }
 class AutoEpisodeManager {
     static let shared = AutoEpisodeManager()

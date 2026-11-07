@@ -147,7 +147,7 @@ class AudioPlayer: NSObject {
 
     @objc private func handleSyncConflict() {
         if state == .playing {
-            pause()
+            pause(sync: false)
         }
     }
 
@@ -216,8 +216,7 @@ class AudioPlayer: NSObject {
                     let localVersion = episode.audioVersion ?? ""
                     if localVersion.isEmpty || localVersion == ver {
                         let isReady = self.player?.currentItem?.status == .readyToPlay
-                        let currentPos = isReady ? self.currentTime : self.pendingSeek
-                        if pos > currentPos {
+                        if abs(pos - self.pendingSeek) > 5 {
                             episode.savePosition(pos)
                             if isReady {
                                 self.seek(to: pos)
@@ -448,10 +447,10 @@ class AudioPlayer: NSObject {
     }
     #endif
 
-    func pause() {
+    func pause(sync: Bool = true) {
         player?.pause()
         state = .paused
-        if PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
+        if sync && PlayerSyncClient.shared.isConfigured, let ep = currentEpisode {
             PlayerSyncClient.shared.postEvent(type: "pause", params: [
                 "session_id": PlayerSyncClient.shared.sessionId ?? "",
                 "episode_guid": ep.guid,
